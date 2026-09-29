@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit, tag, or ref to check out; empty uses the event ref"
+        required: false
+        type: string
+        default: ""
+      export-image:
+        description: "Save the tested image as the goalie-image artifact"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test-build-smoke:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18.1
+        env:
+          POSTGRES_DB: goalie_ci
+          POSTGRES_USER: goalie
+          POSTGRES_PASSWORD: goalie_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U goalie -d goalie_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://goalie:goalie_ci@127.0.0.1:5432/goalie_ci
+      WORK_TEST_DATABASE_URL: postgresql://goalie:goalie_ci@127.0.0.1:5432/goalie_ci
+      AI_ENABLED: "false"
+      OPENJEV_ENABLED: "false"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run tests without skips
+        shell: bash
+        run: |
+          set -o pipefail
+          node --import tsx --test --test-reporter=tap tests/*.test.ts | tee "$RUNNER_TEMP/goalie-tests.tap"
+          test_status=${PIPESTATUS[0]}
+          if [ "$test_status" -ne 0 ]; then
+            echo "The test process failed with status $test_status." >&2
+            exit "$test_status"
+          fi
+          for result in fail skipped cancelled; do
+            count=$(awk -v result="$result" '$1 == "#" && $2 == result { print $3; exit }' "$RUNNER_TEMP/goalie-tests.tap")
+            if [[ ! "$count" =~ ^[0-9]+$ ]]; then
+              echo "Missing or invalid TAP $result summary." >&2
+              exit 1
+            fi
+            if [ "$count" -ne 0 ]; then
+              echo "TAP reported $count $result test(s); CI requires zero." >&2
+              exit 1
+            fi
+          done
+
+      - name: Build application
+        run: bun run build
+
+      - name: Build native amd64 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          checked_out_sha=$(git rev-parse HEAD)
+          package_version=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).version)')
+          docker build --platform linux/amd64 \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$checked_out_sha" \
+            --label "org.opencontainers.image.version=$package_version" \
+            --label "org.opencontainers.image.licenses=MIT" \
+            --label "org.opencontainers.image.description=Goalie work planning application" \
+            --tag goalie:ci .
+          {
+            echo "checked_out_sha=$checked_out_sha"
+            echo "package_version=$package_version"
+          } >> "$GITHUB_OUTPUT"
+        id: image
+
+      - name: Smoke-test tested image
+        env:
+          EXPECTED_REVISION: ${{ steps.image.outputs.checked_out_sha }}
+        run: node scripts/smoke-image.mjs goalie:ci
+
+      - name: Save tested image artifact
+        if: ${{ inputs['export-image'] }}
+        shell: bash
+        env:
+          EXPECTED_REVISION: ${{ steps.image.outputs.checked_out_sha }}
+          PACKAGE_VERSION: ${{ steps.image.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/goalie-image"
+          docker save goalie:ci -o "$RUNNER_TEMP/goalie-image/goalie-image.tar"
+          image_id=$(docker image inspect goalie:ci --format '{{.Id}}')
+          cat > "$RUNNER_TEMP/goalie-image/metadata.json" <<EOF
+          {"imageId":"$image_id","revision":"$EXPECTED_REVISION","version":"$PACKAGE_VERSION"}
+          EOF
+
+      - name: Upload tested image artifact
+        if: ${{ inputs['export-image'] }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: goalie-image
+          path: ${{ runner.temp }}/goalie-image
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

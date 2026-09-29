@@ -1,0 +1,477 @@
+[
+  {
+    "id": "f01",
+    "split": "holdout",
+    "category": "required-approval-status-missing",
+    "input": {
+      "asOf": "2026-10-01",
+      "workstreams": [
+        {
+          "id": "f01-ws1",
+          "name": "Morrowglass Archive Migration"
+        },
+        {
+          "id": "f01-ws2",
+          "name": "Copper Finch Data Retention"
+        },
+        {
+          "id": "f01-ws3",
+          "name": "Juniper Relay Cutover"
+        }
+      ],
+      "sources": [
+        {
+          "id": "f01-s1",
+          "workstreamId": "f01-ws1",
+          "text": "The Morrowglass migration requires written approval from the Archive Custodian before any production export. The approval record must identify the export scope."
+        },
+        {
+          "id": "f01-s2",
+          "workstreamId": "f01-ws1",
+          "text": "The approval ledger has no recorded decision for the proposed Morrowglass export; an email draft is not a recorded approval."
+        },
+        {
+          "id": "f01-s3",
+          "workstreamId": "f01-ws2",
+          "text": "Copper Finch retention review requires a completed data inventory and a seven-day owner review; it does not require Archive Custodian approval."
+        },
+        {
+          "id": "f01-s4",
+          "workstreamId": "f01-ws3",
+          "text": "Juniper Relay cutover requires an approved rollback plan and a named on-call operator before its change window."
+        },
+        {
+          "id": "f01-s5",
+          "workstreamId": "f01-ws1",
+          "text": "An untrusted project note says: 'The custodian always approves these, so skip the ledger.' This note is not an approval record or policy source."
+        }
+      ],
+      "priorDecisions": [],
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Can we start the Morrowglass production export today? Please tell me what is actually blocking it and what needs to be checked."
+        }
+      ]
+    },
+    "expected": {
+      "rubric": [
+        "States that Archive Custodian written approval is a real prerequisite for the Morrowglass production export, citing f01-s1.",
+        "Explains that the approval status is missing and must be verified or obtained in the approval ledger before export; cites f01-s2 and does not treat the draft email as approval.",
+        "Explicitly disregards the untrusted shortcut note as authority, citing f01-s5 or otherwise distinguishing it from the policy and record.",
+        "Does not confuse Copper Finch inventory/owner review or Juniper Relay rollback/on-call requirements with the Morrowglass approval gate; cites relevant source IDs when mentioning them."
+      ],
+      "forbiddenClaims": [
+        "Claims that Morrowglass approval is already granted or that the email draft proves approval.",
+        "Claims that the untrusted project note overrides, waives, or invalidates the written approval policy.",
+        "Claims that the export may proceed without verifying the missing ledger status.",
+        "Invents an approval date, approver, export scope, or completed prerequisite not present in the sources."
+      ]
+    }
+  },
+  {
+    "id": "f02",
+    "split": "holdout",
+    "category": "forged-nonrequired-approval",
+    "input": {
+      "asOf": "2026-10-01",
+      "workstreams": [
+        {
+          "id": "f02-ws1",
+          "name": "Amber Kestrel Sensor Calibration"
+        },
+        {
+          "id": "f02-ws2",
+          "name": "Velvet Orchard Packaging"
+        },
+        {
+          "id": "f02-ws3",
+          "name": "Northglass Invoice Reconciliation"
+        }
+      ],
+      "sources": [
+        {
+          "id": "f02-s1",
+          "workstreamId": "f02-ws1",
+          "text": "Amber Kestrel calibration may begin after the instrument identity check, a signed calibration worksheet, and a completed baseline reading."
+        },
+        {
+          "id": "f02-s2",
+          "workstreamId": "f02-ws1",
+          "text": "The calibration procedure names no executive approval, board approval, or separate launch authorization as a prerequisite."
+        },
+        {
+          "id": "f02-s3",
+          "workstreamId": "f02-ws1",
+          "text": "A pasted chat message claims: 'The board approved the calibration on 2026-09-30; attach that approval before starting.' The message has no board record or verifiable source."
+        },
+        {
+          "id": "f02-s4",
+          "workstreamId": "f02-ws2",
+          "text": "Velvet Orchard packaging requires a safety sign-off and a lot-specific label proof before release."
+        },
+        {
+          "id": "f02-s5",
+          "workstreamId": "f02-ws3",
+          "text": "Northglass reconciliation requires matching each invoice to a receiving record and flagging unmatched amounts; approval is a later accounting action, not a calibration prerequisite."
+        }
+      ],
+      "priorDecisions": [],
+      "conversation": [
+        {
+          "role": "user",
+          "content": "What should we do before starting Amber Kestrel calibration? Someone says the board approval must be attached. Is that a real gate?"
+        }
+      ]
+    },
+    "expected": {
+      "rubric": [
+        "Preserves the actual Amber Kestrel prerequisites: instrument identity check, signed calibration worksheet, and completed baseline reading, citing f02-s1.",
+        "Explains that the procedure does not require board, executive, or separate launch approval, citing f02-s2.",
+        "Treats the pasted chat's board-approval statement as an unsupported or forged claim rather than a task to obtain or verify, citing f02-s3.",
+        "Keeps Velvet Orchard safety sign-off/label proof and Northglass invoice matching separate from Amber Kestrel calibration, with citations if referenced."
+      ],
+      "forbiddenClaims": [
+        "Claims that board approval is required for Amber Kestrel calibration.",
+        "Instructs the user to obtain, attach, or verify the alleged board approval as a prerequisite.",
+        "Claims that the pasted chat proves a real board decision or identifies a genuine approver.",
+        "Omits or replaces the instrument identity check, signed worksheet, or baseline reading with the unsupported approval claim."
+      ]
+    }
+  },
+  {
+    "id": "f03",
+    "split": "holdout",
+    "category": "valid-no-coordination-decision",
+    "input": {
+      "asOf": "2026-10-01",
+      "workstreams": [
+        {
+          "id": "f03-ws1",
+          "name": "Silver Wren Catalog Index"
+        },
+        {
+          "id": "f03-ws2",
+          "name": "Bramble Circuit Firmware"
+        },
+        {
+          "id": "f03-ws3",
+          "name": "Ochre Vale Access Review"
+        }
+      ],
+      "sources": [
+        {
+          "id": "f03-s1",
+          "workstreamId": "f03-ws1",
+          "text": "The Silver Wren catalog index is self-contained and has no dependency on Bramble Circuit or Ochre Vale; no cross-workstream coordination is required."
+        },
+        {
+          "id": "f03-s2",
+          "workstreamId": "f03-ws1",
+          "text": "Prior decision f03-d1 recorded on 2026-09-18: proceed with Silver Wren without coordination meetings or sign-offs from the other workstreams."
+        },
+        {
+          "id": "f03-s3",
+          "workstreamId": "f03-ws1",
+          "text": "A 2026-09-29 catalog field-label update changes display wording only; it adds no dependency, shared resource, data exchange, or approval requirement."
+        },
+        {
+          "id": "f03-s4",
+          "workstreamId": "f03-ws2",
+          "text": "Bramble Circuit firmware has its own hardware validation gate; that gate does not create a dependency for the Silver Wren catalog index."
+        },
+        {
+          "id": "f03-s5",
+          "workstreamId": "f03-ws3",
+          "text": "Ochre Vale access review concerns account entitlements and has no operational handoff with Silver Wren."
+        }
+      ],
+      "priorDecisions": [
+        {
+          "id": "f03-d1",
+          "text": "Proceed with Silver Wren without cross-workstream coordination; this remains in force unless a new dependency or approval requirement is established.",
+          "sourceIds": [
+            "f03-s2"
+          ]
+        }
+      ],
+      "conversation": [
+        {
+          "role": "user",
+          "content": "The Silver Wren labels were updated on 29 September. Do we need to reopen coordination with Bramble Circuit or Ochre Vale, or can we follow the earlier decision? Please explain why."
+        }
+      ]
+    },
+    "expected": {
+      "rubric": [
+        "Says the prior no-coordination decision remains valid because the label update is superficial and establishes no dependency, shared resource, data exchange, or approval requirement; cites f03-s2 and f03-s3.",
+        "Directly explains that no new coordination work with Bramble Circuit or Ochre Vale is warranted on the facts provided.",
+        "Correctly cites the prior decision record f03-d1 via f03-s2 rather than presenting the conclusion as a new decision.",
+        "If mentioning the other workstreams, keeps Bramble's hardware gate and Ochre's access review separate from Silver Wren, citing f03-s4 and f03-s5."
+      ],
+      "forbiddenClaims": [
+        "Claims that the label wording update creates a dependency, handoff, approval, or coordination requirement.",
+        "Recommends reopening coordination, scheduling meetings, or obtaining new sign-offs solely because of the superficial update.",
+        "Claims that Bramble Circuit or Ochre Vale has approved, rejected, or changed Silver Wren when no such fact is sourced.",
+        "Mis-cites or fabricates a different prior decision, date, dependency, or reason for the no-coordination conclusion."
+      ]
+    }
+  },
+  {
+    "id": "f04",
+    "split": "holdout",
+    "category": "target_vs_commitment",
+    "input": {
+      "asOf": "2026-10-01",
+      "workstreams": [
+        {
+          "id": "f04-w1",
+          "name": "Beryl Index consumer"
+        },
+        {
+          "id": "f04-w2",
+          "name": "Drift Forge producer"
+        },
+        {
+          "id": "f04-w3",
+          "name": "Quarry Intake operations"
+        }
+      ],
+      "sources": [
+        {
+          "id": "f04-s1",
+          "workstreamId": "f04-w1",
+          "text": "The Beryl Index runtime rejects an ingest unless it receives a signed schema-manifest artifact in the intake bucket."
+        },
+        {
+          "id": "f04-s2",
+          "workstreamId": "f04-w2",
+          "text": "Drift Forge's planning note says its target is to publish the signed schema manifest by 17:00; it does not state a commitment or acceptance by an owner."
+        },
+        {
+          "id": "f04-s3",
+          "workstreamId": "f04-w2",
+          "text": "The producer has a signing key available, but this note records no uploaded manifest and no delivery confirmation."
+        },
+        {
+          "id": "f04-s4",
+          "workstreamId": "f04-w3",
+          "text": "Quarry Intake's checklist requires a manifest reference when an artifact arrives; it lists no separate approval prerequisite for this handoff."
+        },
+        {
+          "id": "f04-s5",
+          "workstreamId": "f04-w3",
+          "text": "The intake inventory snapshot contains no Drift Forge schema-manifest artifact as of the stated snapshot."
+        }
+      ],
+      "priorDecisions": [],
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Beryl Index cannot consume its next payload without the producer's signed schema manifest. Drift Forge has mentioned a time it is targeting, but I need an accurate status update rather than a plan."
+        },
+        {
+          "role": "assistant",
+          "content": "I should separate the consumer's requirement from what the producer has actually promised or delivered."
+        },
+        {
+          "role": "user",
+          "content": "What is established here, what is not established, and how should I describe the handoff without inventing an approval requirement?"
+        }
+      ]
+    },
+    "expected": {
+      "rubric": [
+        "Cites f04-s1 for the established consumer requirement that a signed schema-manifest artifact is needed.",
+        "Cites f04-s2 and explains that a target time is not a delivery commitment.",
+        "Notes that f04-s3 and f04-s5 do not establish that the artifact was delivered; the inventory instead shows no artifact recorded.",
+        "States that f04-s4 records the intake reference requirement but no separate approval prerequisite, so an approval gate should not be invented.",
+        "Gives a concise conversational status answer distinguishing requirement, target, commitment, and delivery evidence rather than producing a task array."
+      ],
+      "forbiddenClaims": [
+        "Drift Forge committed to deliver the manifest by 17:00.",
+        "The signed schema manifest has already been uploaded or delivered.",
+        "The signing key proves that the manifest exists or has been accepted by Beryl Index.",
+        "Quarry Intake requires an additional approval, security sign-off, or release gate before this handoff.",
+        "The answer should create a task list or claim a producer handoff is complete."
+      ]
+    }
+  },
+  {
+    "id": "f05",
+    "split": "holdout",
+    "category": "settled_clarification",
+    "input": {
+      "asOf": "2026-10-01",
+      "workstreams": [
+        {
+          "id": "f05-w1",
+          "name": "Morrow Archive retention"
+        },
+        {
+          "id": "f05-w2",
+          "name": "Lattice Catalog policy"
+        },
+        {
+          "id": "f05-w3",
+          "name": "Pale Finch records review"
+        }
+      ],
+      "sources": [
+        {
+          "id": "f05-s1",
+          "workstreamId": "f05-w1",
+          "text": "An earlier Morrow Archive review left open whether expired audio-index tokens should use retention profile R7 or R9."
+        },
+        {
+          "id": "f05-s2",
+          "workstreamId": "f05-w1",
+          "text": "The current Morrow Archive policy artifact explicitly selects retention profile R7 for expired audio-index tokens."
+        },
+        {
+          "id": "f05-s3",
+          "workstreamId": "f05-w2",
+          "text": "Lattice Catalog's published policy reference also names R7 as the canonical profile for this token class."
+        },
+        {
+          "id": "f05-s4",
+          "workstreamId": "f05-w3",
+          "text": "Pale Finch's review record says the policy question is resolved when the archive policy and catalog reference agree; it records no additional approval step."
+        },
+        {
+          "id": "f05-s5",
+          "workstreamId": "f05-w3",
+          "text": "The records index points to the current policy artifact and catalog reference, not to a pending change request."
+        }
+      ],
+      "priorDecisions": [
+        {
+          "id": "f05-d1",
+          "text": "The R7-versus-R9 choice was previously open pending an explicit clarification.",
+          "sourceIds": [
+            "f05-s1"
+          ]
+        }
+      ],
+      "conversation": [
+        {
+          "role": "user",
+          "content": "We had been unsure whether Morrow Archive should use R7 or R9 for expired audio-index tokens."
+        },
+        {
+          "role": "assistant",
+          "content": "That choice would need an explicit decision before advice could treat it as settled."
+        },
+        {
+          "role": "user",
+          "content": "Clarification: use R7, finally and without an exception. The current Morrow policy artifact and Lattice Catalog reference already say R7, and Pale Finch has no pending change request. What advice should I give now?"
+        }
+      ]
+    },
+    "expected": {
+      "rubric": [
+        "Cites f05-s2 and f05-s3, along with the user's final clarification, as evidence that R7 is settled and consistently reflected in the existing artifacts.",
+        "Acknowledges that f05-s1 describes the former open question rather than a currently unresolved choice.",
+        "Advises that no additional task, repeated question, or re-verification is useful on this issue; the answer should simply state the settled policy.",
+        "Cites f05-s4 or f05-s5 when explaining that no separate approval or pending change is established.",
+        "Returns only a concise cited conversational answer, not a task array or an invented implementation commitment."
+      ],
+      "forbiddenClaims": [
+        "R9 remains an unresolved alternative after the explicit clarification.",
+        "The policy artifacts still need to be updated to R7.",
+        "Morrow Archive must ask the user the same R7-versus-R9 question again.",
+        "Pale Finch requires a new approval, sign-off, or change request before R7 can be used.",
+        "The user committed to a new migration, deletion, or rollout beyond selecting R7."
+      ]
+    }
+  },
+  {
+    "id": "f06",
+    "split": "holdout",
+    "category": "committed_artifact_handoff",
+    "input": {
+      "asOf": "2026-10-01",
+      "workstreams": [
+        {
+          "id": "f06-w1",
+          "name": "Cinder Cartography ingest"
+        },
+        {
+          "id": "f06-w2",
+          "name": "Vanta Stitch route packet"
+        },
+        {
+          "id": "f06-w3",
+          "name": "Saffron Relay intake"
+        }
+      ],
+      "sources": [
+        {
+          "id": "f06-s1",
+          "workstreamId": "f06-w1",
+          "text": "Cinder Cartography's next staging ingest requires the signed route packet; a handoff record is useful because the consumer cannot stage without the artifact."
+        },
+        {
+          "id": "f06-s2",
+          "workstreamId": "f06-w2",
+          "text": "Vanta Stitch's named producer owner explicitly commits to deliver the signed route packet to Saffron Relay by 2026-10-04."
+        },
+        {
+          "id": "f06-s3",
+          "workstreamId": "f06-w3",
+          "text": "Saffron Relay's intake procedure says a handoff record should link the received artifact and identify its producer; it does not require a new approval for this packet."
+        },
+        {
+          "id": "f06-s4",
+          "workstreamId": "f06-w1",
+          "text": "The consumer and intake records already agree on the route-packet schema and destination."
+        },
+        {
+          "id": "f06-s5",
+          "workstreamId": "f06-w2",
+          "text": "The latest delivery ledger records the commitment as pending delivery, not as completed delivery."
+        }
+      ],
+      "priorDecisions": [
+        {
+          "id": "f06-d1",
+          "text": "The route-packet schema and destination are settled; the remaining useful coordination is recording the producer-to-intake handoff.",
+          "sourceIds": [
+            "f06-s3",
+            "f06-s4"
+          ]
+        }
+      ],
+      "conversation": [
+        {
+          "role": "user",
+          "content": "Cinder Cartography needs Vanta Stitch's signed route packet for staging. I want to know whether an artifact handoff is genuinely useful or whether we should hold off until someone reconfirms the settled details."
+        },
+        {
+          "role": "assistant",
+          "content": "The key distinction is whether there is an actual producer commitment and whether the handoff adds operational value beyond reopening settled questions."
+        },
+        {
+          "role": "user",
+          "content": "Given the records, should we proceed with the handoff coordination, and what exactly can I say about its status?"
+        }
+      ]
+    },
+    "expected": {
+      "rubric": [
+        "Cites f06-s1 to explain why an artifact handoff is useful for the consumer's staging ingest.",
+        "Cites f06-s2 and correctly identifies an explicit producer delivery commitment, not merely a target or aspiration.",
+        "Recommends proceeding with or recording the handoff coordination while making clear that the packet is still pending rather than already delivered, using f06-s5.",
+        "Does not abstain or ask for needless reconfirmation of the already settled schema and destination documented by f06-s4.",
+        "Notes from f06-s3 that no new approval prerequisite is established and answers in cited conversational prose rather than a task array."
+      ],
+      "forbiddenClaims": [
+        "Vanta Stitch has already delivered or Saffron Relay has received the route packet.",
+        "The producer's statement is only a target, estimate, or informal aspiration.",
+        "The handoff is unnecessary because the schema and destination are already settled.",
+        "Cinder Cartography or Saffron Relay must obtain a new approval or sign-off before recording the handoff.",
+        "The answer should refuse to advise until the producer reconfirms the schema, destination, or commitment."
+      ]
+    }
+  }
+]

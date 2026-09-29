@@ -1,0 +1,275 @@
+name: Publish release image
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published vMAJOR.MINOR.PATCH tag to republish"
+        required: true
+        type: string
+
+concurrency:
+  group: publish-release-images
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+      version: ${{ steps.validate.outputs.version }}
+      commit: ${{ steps.validate.outputs.commit }}
+      latestStable: ${{ steps.validate.outputs.latestStable }}
+    steps:
+      - name: Check out validation tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate published release and tag
+        id: validate
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "::error::A release tag is required." >&2
+            exit 1
+          fi
+          node scripts/release-preflight.mjs \
+            --tag "$RELEASE_TAG" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/release-preflight.json"
+          node --input-type=module <<'NODE' >> "$GITHUB_OUTPUT"
+          import { readFile } from "node:fs/promises";
+          const result = JSON.parse(await readFile(process.env.RUNNER_TEMP + "/release-preflight.json", "utf8"));
+          for (const key of ["tag", "version", "commit", "latestStable"]) {
+            process.stdout.write(`${key}=${result[key]}\n`);
+          }
+          NODE
+
+  tested-image:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.preflight.outputs.commit }}
+      export-image: true
+
+  publish:
+    needs:
+      - preflight
+      - tested-image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+    steps:
+      - name: Require Docker Hub configuration
+        shell: bash
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "::error::DOCKERHUB_USERNAME repository variable is required." >&2
+            exit 1
+          fi
+          if [ -z "$DOCKERHUB_IMAGE" ]; then
+            echo "::error::DOCKERHUB_IMAGE repository variable is required." >&2
+            exit 1
+          fi
+          if [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::DOCKERHUB_TOKEN repository secret is required." >&2
+            exit 1
+          fi
+          if [[ ! "$DOCKERHUB_IMAGE" =~ ^[a-z0-9]+([._-][a-z0-9]+)*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "::error::DOCKERHUB_IMAGE must be a lowercase namespace/repository, not a URL or shell argument." >&2
+            exit 1
+          fi
+
+      - name: Download tested image artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: goalie-image
+          path: ${{ runner.temp }}/goalie-image
+
+      - name: Load and verify tested image
+        shell: bash
+        env:
+          EXPECTED_REVISION: ${{ needs.preflight.outputs.commit }}
+          EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          image_tar="$RUNNER_TEMP/goalie-image/goalie-image.tar"
+          metadata="$RUNNER_TEMP/goalie-image/metadata.json"
+          test -f "$image_tar"
+          test -f "$metadata"
+          docker load --input "$image_tar"
+          metadata_id=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).imageId)' "$metadata")
+          metadata_revision=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).revision)' "$metadata")
+          metadata_version=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$metadata")
+          loaded_id=$(docker image inspect goalie:ci --format '{{.Id}}')
+          loaded_revision=$(docker image inspect goalie:ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+          loaded_version=$(docker image inspect goalie:ci --format '{{index .Config.Labels "org.opencontainers.image.version"}}')
+          test "$loaded_id" = "$metadata_id"
+          test "$metadata_revision" = "$EXPECTED_REVISION"
+          test "$metadata_version" = "$EXPECTED_VERSION"
+          test "$loaded_revision" = "$EXPECTED_REVISION"
+          test "$loaded_version" = "$EXPECTED_VERSION"
+
+      - name: Recheck current latest stable release
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Determine whether release is still latest before mutable writes
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_API_URL: ${{ github.api_url }}
+        run: |
+          set -euo pipefail
+          latest_stable=$(node --input-type=module <<'NODE'
+          import { isCurrentLatestStableRelease } from "./scripts/release-preflight.mjs";
+          const base = new URL(process.env.GITHUB_API_URL || "https://api.github.com/");
+          if (!base.pathname.endsWith("/")) base.pathname += "/";
+          const endpoint = new URL(`repos/${process.env.GITHUB_REPOSITORY}/releases/latest`, base);
+          const response = await fetch(endpoint, {
+            headers: {
+              accept: "application/vnd.github+json",
+              authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              "x-github-api-version": "2022-11-28",
+            },
+          });
+          if (!response.ok) throw new Error(`latest-release API request failed (${response.status})`);
+          const latest = await response.json();
+          process.stdout.write(String(isCurrentLatestStableRelease(process.env.RELEASE_TAG, latest)));
+          NODE
+          )
+          echo "LATEST_STABLE=$latest_stable" >> "$GITHUB_ENV"
+
+      - name: Tag and publish the tested image
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ghcr_image="ghcr.io/${GITHUB_REPOSITORY,,}:$RELEASE_VERSION"
+          dockerhub_image="$DOCKERHUB_IMAGE:$RELEASE_VERSION"
+          docker tag goalie:ci "$ghcr_image"
+          docker tag goalie:ci "$dockerhub_image"
+          ghcr_version=failed
+          dockerhub_version=failed
+          ghcr_latest=not-requested
+          dockerhub_latest=not-requested
+          ghcr_digest=unavailable
+          dockerhub_digest=unavailable
+          status=0
+          ghcr_latest_digest=unavailable
+          dockerhub_latest_digest=unavailable
+
+
+          if ! printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin; then
+            echo "::error::GHCR login failed; Docker Hub was not attempted." >&2
+            exit 1
+          fi
+          if ! printf '%s' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin; then
+            echo "::error::Docker Hub login failed; GHCR login succeeded but no image was published." >&2
+            exit 1
+          fi
+          sanitize_push_failure() {
+            local registry=$1
+            local log_file=$2
+            echo "::error::$registry push failed; sanitized diagnostics follow." >&2
+            sed -E 's/(password|token|authorization|secret)([=:][^[:space:]]+)/\1=[REDACTED]/Ig; s#https?://[^[:space:]@]+@#https://[REDACTED]@#g' "$log_file" >&2
+          }
+
+          if docker push "$ghcr_image" > "$RUNNER_TEMP/ghcr-push.log" 2>&1; then
+            ghcr_version=published
+            ghcr_digest=$(awk '{ if (match($0, /sha256:[0-9a-f]+/)) value=substr($0, RSTART, RLENGTH) } END { print value }' "$RUNNER_TEMP/ghcr-push.log")
+            ghcr_digest=${ghcr_digest:-unavailable}
+          else
+            sanitize_push_failure "GHCR version" "$RUNNER_TEMP/ghcr-push.log"
+            status=1
+          fi
+          if docker push "$dockerhub_image" > "$RUNNER_TEMP/dockerhub-push.log" 2>&1; then
+            dockerhub_version=published
+            dockerhub_digest=$(awk '{ if (match($0, /sha256:[0-9a-f]+/)) value=substr($0, RSTART, RLENGTH) } END { print value }' "$RUNNER_TEMP/dockerhub-push.log")
+            dockerhub_digest=${dockerhub_digest:-unavailable}
+          else
+            sanitize_push_failure "Docker Hub version" "$RUNNER_TEMP/dockerhub-push.log"
+            status=1
+          fi
+
+          if [ "$LATEST_STABLE" = true ]; then
+            if [ "$ghcr_version" = published ]; then
+              ghcr_latest_image="ghcr.io/${GITHUB_REPOSITORY,,}:latest"
+              docker tag goalie:ci "$ghcr_latest_image"
+              if docker push "$ghcr_latest_image" > "$RUNNER_TEMP/ghcr-latest.log" 2>&1; then
+                ghcr_latest=published
+                ghcr_latest_digest=$(awk '{ if (match($0, /sha256:[0-9a-f]+/)) value=substr($0, RSTART, RLENGTH) } END { print value }' "$RUNNER_TEMP/ghcr-latest.log")
+                ghcr_latest_digest=${ghcr_latest_digest:-unavailable}
+              else
+                ghcr_latest=failed
+                sanitize_push_failure "GHCR latest" "$RUNNER_TEMP/ghcr-latest.log"
+                status=1
+              fi
+            else
+              ghcr_latest=not-published-after-version-failure
+            fi
+            if [ "$dockerhub_version" = published ]; then
+              dockerhub_latest_image="$DOCKERHUB_IMAGE:latest"
+              docker tag goalie:ci "$dockerhub_latest_image"
+              if docker push "$dockerhub_latest_image" > "$RUNNER_TEMP/dockerhub-latest.log" 2>&1; then
+                dockerhub_latest=published
+                dockerhub_latest_digest=$(awk '{ if (match($0, /sha256:[0-9a-f]+/)) value=substr($0, RSTART, RLENGTH) } END { print value }' "$RUNNER_TEMP/dockerhub-latest.log")
+                dockerhub_latest_digest=${dockerhub_latest_digest:-unavailable}
+              else
+                dockerhub_latest=failed
+                sanitize_push_failure "Docker Hub latest" "$RUNNER_TEMP/dockerhub-latest.log"
+                status=1
+              fi
+            else
+              dockerhub_latest=not-published-after-version-failure
+            fi
+          fi
+
+          {
+            echo "### Published image"
+            echo "- Release: $RELEASE_TAG (commit $RELEASE_COMMIT)"
+            echo "- GHCR $ghcr_image: $ghcr_version ($ghcr_digest); latest: $ghcr_latest ($ghcr_latest_digest)"
+            echo "- Docker Hub $dockerhub_image: $dockerhub_version ($dockerhub_digest); latest: $dockerhub_latest ($dockerhub_latest_digest)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Publication was nonatomic; see the summary for which registry succeeded." >&2
+            exit "$status"
+          fi
+      - name: Log out of registries
+        if: ${{ always() }}
+        shell: bash
+        continue-on-error: true
+        run: |
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          docker logout >/dev/null 2>&1 || true

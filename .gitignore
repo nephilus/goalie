@@ -1,0 +1,14 @@
+node_modules/
+build/
+.react-router/
+.env
+.env.*
+!.env.example
+.local/
+.omp/
+.impeccable/
+*.log
+*.tar
+*.tar.gz
+coverage/
+__pycache__/

@@ -1,0 +1,17 @@
+*
+!Dockerfile
+!package.json
+!LICENSE
+!bun.lock
+!tsconfig.json
+!vite.config.ts
+!react-router.config.ts
+!app
+!app/**
+!public
+!public/**
+!scripts
+scripts/*
+!scripts/migrate.ts
+!migrations
+!migrations/**

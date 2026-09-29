@@ -1,0 +1,11 @@
+{
+  "name": "goalie",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "node",
+  "updateRemoteUserUID": false,
+  "runArgs": ["--network=host", "--cpus=2", "--memory=3g", "--memory-swap=3g", "--security-opt=no-new-privileges"],
+  "containerEnv": { "NODE_OPTIONS": "--max-old-space-size=1536", "PG0_HOME": "/workspaces/goalie/.local/pg0" },
+  "workspaceFolder": "/workspaces/goalie",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/goalie,type=bind",
+  "customizations": { "vscode": { "settings": { "typescript.tsdk": "node_modules/typescript/lib" } } }
+}

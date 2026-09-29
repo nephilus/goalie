@@ -1,0 +1,8 @@
+{
+  "name": "goalie-coordination-evals",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": { "eval": "promptfoo eval --config promptfooconfig.mjs --no-cache --repeat 3 --max-concurrency 1" },
+  "devDependencies": { "promptfoo": "0.123.1" }
+}

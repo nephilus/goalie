@@ -25,7 +25,7 @@ Add the owner-selected remote and push only after separate authorization. Never 
 
 Add a fine-grained, repository-scoped Actions secret named `RELEASE_PLEASE_TOKEN`. Grant only Contents, Pull requests, and Issues read/write for this repository, with an owner-selected expiry. This is separate from `GITHUB_TOKEN` and from the Docker Hub token. The release workflow fails clearly when the secret is absent; it does not fall back to `GITHUB_TOKEN`.
 
-The workflow opens or updates one release PR from Conventional Commit history. A maintainer reviews and squash-merges it. Release Please then creates the version tag and GitHub release; it does not auto-merge or deploy.
+The workflow opens or updates one release PR from Conventional Commit history. `always-update` keeps that PR based on current `main` even when a maintenance commit leaves release notes unchanged; it does not force maintenance commits to create releases. A maintainer reviews and squash-merges the PR. Release Please then creates the version tag and GitHub release; it does not auto-merge or deploy.
 
 Use Conventional Commit PR titles: `fix:` means patch, `feat:` means minor, and `!` or a `BREAKING CHANGE:` trailer means major, including below 1.0. Preserve breaking trailers and the most significant change when squash-merging. Other maintenance types do not necessarily produce a release. The empty initial manifest and explicit `initial-version: 0.1.0` bootstrap the first Node release at 0.1.0; afterward Release Please owns versions, generated changelog entries, and tags.
 

@@ -31,16 +31,6 @@ export function requireReachableFromMain(compareStatus) {
   }
 }
 
-export function isCurrentLatestStableRelease(tag, latestRelease) {
-  return Boolean(
-    latestRelease &&
-    latestRelease.tag_name === tag &&
-    latestRelease.draft === false &&
-    latestRelease.prerelease === false &&
-    latestRelease.published_at,
-  );
-}
-
 function usage() {
   return "Usage: node scripts/release-preflight.mjs --tag vMAJOR.MINOR.PATCH --repository owner/name [--output path]";
 }
@@ -129,19 +119,11 @@ async function main() {
   const packageJson = await readPackageAtTag(get, repository, tagCommit);
   validatePackageVersion(packageJson.version, version);
 
-  let latestRelease = null;
-  try {
-    latestRelease = await get(`repos/${repository}/releases/latest`);
-  } catch (error) {
-    if (!String(error.message).includes("(404)")) throw error;
-  }
-
   const result = {
     tag,
     version,
     commit: tagCommit,
     mainCommit,
-    latestStable: isCurrentLatestStableRelease(tag, latestRelease),
   };
   const serialized = `${JSON.stringify(result)}\n`;
   if (arguments_.output) await writeFile(arguments_.output, serialized, "utf8");

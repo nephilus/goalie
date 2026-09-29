@@ -79,7 +79,11 @@ ghcr.io/<owner>/<repo>:<version>
 <dockerhub-namespace>/goalie:<version>
 ```
 
-Pin a release version rather than a mutable branch tag. A version pin cannot reverse a migration: backups, schema-aware rollback planning, and operator ownership remain required. There is no automatic seed step and no automatic deployment after an image publication.
+No registry image has been published from this preparation. When publication is authorized, use only an immutable `X.Y.Z` version tag. There is no `latest`, branch, or major/minor alias. Configure Docker Hub with all-tag immutability. GHCR's application guard checks a target before writing, but cannot guarantee atomic immutability against an external writer; use no other publisher for these image names.
+
+For either registry, publication first pulls the target and compares its image ID/config digest with the tested image. An identical target is skipped; a different target fails; and a push is allowed only after the registry explicitly reports the named manifest or image name is absent. Authentication or network-ambiguous results fail closed. The guard never overwrites or deletes a target.
+
+Pin a release version rather than a mutable tag. The 7-day tested-image artifact supports rerunning a failed publication job. After it expires, recover the original image from a registry or other retained store, or publish a new version. Rebuilding may create a different image and conflict with an immutable tag; it cannot overwrite that tag. A version pin cannot reverse a migration: backups, schema-aware rollback planning, and operator ownership remain required. There is no automatic seed step or deployment after image publication.
 
 ## Trusted local MCP
 

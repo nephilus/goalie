@@ -39,7 +39,9 @@ The setup command creates private, ignored instance files and does not print pas
 - [Release and first-publication checklist](docs/releases.md)
 - [Changelog](CHANGELOG.md)
 
-The production image is built from the repository's pinned Node 24 base and runs as the non-root `node` user. Production operators must run migrations explicitly before startup; the image has no automatic migration or seed entrypoint. See [deployment](docs/deployment.md).
+The container image is built from the repository's pinned Node 24 base and runs as the non-root `node` user. Production operators must run migrations explicitly before startup; the image has no automatic migration or seed entrypoint. No registry image has been published from this preparation. See [deployment](docs/deployment.md).
+
+When publication is authorized, use only `X.Y.Z` version tags for both registries; there is no `latest`, branch, or major/minor alias. The publication guard never overwrites or deletes an existing target: it skips an identical image, rejects a different image, and publishes only after the registry explicitly confirms that the target manifest is absent. Keep a single publisher for each image name. A registry authentication or network-ambiguous result fails closed.
 
 ## Stack and license
 

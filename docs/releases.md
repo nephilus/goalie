@@ -1,6 +1,6 @@
 # Release and first-publication checklist
 
-This repository preparation does not create a GitHub repository, publish source, log in to a registry, or claim a hosted release. An owner must complete the following steps deliberately.
+This guide covers repository setup, reviewed releases, and immutable versioned image publication. Source is public and hosted CI has passed; releasing a version and publishing its images are separate steps.
 
 ## 1. Audit before publication
 
@@ -35,16 +35,19 @@ Use Conventional Commit PR titles: `fix:` means patch, `feat:` means minor, and 
 2. Open **My Hub → Repositories → Create repository**.
 3. Use the intended existing user/organization namespace and name `goalie`; set visibility to **Public**. If that name is already owned for this project, reuse it; otherwise choose the intended existing name and use the full namespace/repository in configuration.
 4. Do not enable Docker Hub autobuilds; GitHub Actions owns builds.
-5. In account settings, create a personal access token named `goalie-github-actions` with an owner-selected expiry and **Read** and **Write** only (no Delete). Store it directly in the GitHub Actions secret `DOCKERHUB_TOKEN`, never in chat or a file.
-6. Add repository variables `DOCKERHUB_USERNAME` (login user) and `DOCKERHUB_IMAGE` (full lowercase namespace/repository). The publish preflight rejects URLs, shell-like arguments, and names that are not lowercase namespace/repository values.
+5. Configure Docker Hub tag immutability for **all tags**. The publication workflow never overwrites or deletes an existing target.
+6. In account settings, create a personal access token named `goalie-github-actions` with an owner-selected expiry and **Read** and **Write** only (no Delete). Store it directly in the GitHub Actions secret `DOCKERHUB_TOKEN`, never in chat or a file.
+7. Add repository variables `DOCKERHUB_USERNAME` (login user) and `DOCKERHUB_IMAGE` (full lowercase namespace/repository). The publish preflight rejects URLs, shell-like arguments, and names that are not lowercase namespace/repository values.
 
 ## 5. GHCR
 
 The publish job uses `GITHUB_TOKEN` and needs no additional PAT. On first push, GHCR packages default to private. Visit package settings, verify the repository link and Actions access, and explicitly change package visibility to **Public**. Repository visibility alone does not guarantee anonymous package pulls.
 
+The GHCR application guard checks the remote target before every write, but it cannot provide atomic registry immutability against an external writer. Do not configure another publisher for these image names. If a different publisher races the guard, the resulting target is not considered safe.
+
 ## 6. CI, release, and image handoff
 
-The reusable CI workflow runs on pull requests and pushes to `main`, and can be called for an exact release commit. It runs Node 24.14.0, Bun 1.4.2, disposable PostgreSQL, typecheck, TAP tests, a build, and native linux/amd64 image acceptance. With `export-image=true`, it also uploads the retained `goalie-image` artifact containing that tested image tar and metadata. The publish workflow downloads that artifact; it does not rebuild between smoke and push. ARM images are not published.
+The reusable CI workflow runs on pull requests and pushes to `main`, and can be called for an exact release commit. It runs Node 24.14.0, Bun 1.4.2, disposable PostgreSQL, typecheck, TAP tests, a build, and native linux/amd64 image acceptance. With `export-image=true`, it uploads the `goalie-image` artifact containing that tested image tar and metadata for **7 days**. The publish workflow downloads that artifact; it does not rebuild between smoke and push. ARM images are not published. No registry image is available from this preparation yet.
 
 A normal release path is:
 
@@ -53,11 +56,12 @@ A normal release path is:
 3. A maintainer reviews and squash-merges the release PR.
 4. Release Please creates the strict `vMAJOR.MINOR.PATCH` tag and published GitHub release.
 5. Publish resolves that tag, verifies its commit is reachable from `main` and package version matches, then calls CI on that exact commit with image export enabled.
-6. The publish job verifies image ID, revision, version, and metadata before tagging the same image as `ghcr.io/<lowercased-owner>/<repo>:X.Y.Z` and `${DOCKERHUB_IMAGE}:X.Y.Z`.
-7. `latest` is added only when the release is GitHub's current latest stable release. Major/minor aliases and branch images are never published.
-8. Verify anonymous pulls from both registries, matching version/revision labels, and the image smoke result before announcing availability.
+6. The publish job verifies image ID, revision, version, and metadata before considering either registry target.
+7. Before **any** write, the publication guard checks both registry targets and compares each existing image ID/config digest with the tested image. It skips identical targets and aborts all writes on a different image or an authentication, permission, rate-limit, or network-ambiguous failure. Only an explicit missing-manifest/name response permits publication. Checking both first prevents a rebuilt artifact from splitting one version across different images. The guard does not intentionally overwrite or delete existing tags; GHCR still requires the single-publisher constraint above.
+8. Both registries receive only the tested image under their `X.Y.Z` version tag: `ghcr.io/<lowercased-owner>/<repo>:X.Y.Z` and `${DOCKERHUB_IMAGE}:X.Y.Z`. There is no `latest`, branch, or major/minor alias.
+9. Verify anonymous pulls from both registries, matching version/revision labels, and the image smoke result before announcing availability.
 
-Two-registry publication is nonatomic. If one registry succeeds and the other fails, the workflow reports which succeeded and does not delete or roll it back. A retained artifact can be used to rerun the failed job. If it expired, dispatch the workflow again with the same validated tag after CI recreates a new tested artifact.
+Two-registry publication is nonatomic. If one registry succeeds and the other fails, the workflow reports which succeeded and does not delete or roll it back. Rerunning the failed job with the retained 7-day artifact is supported. After that artifact expires, recover the original image from a registry or other retained store, or use a new version. Rebuilding can produce a different image and may conflict with an existing immutable tag; it cannot overwrite that tag.
 
 The smoke harness does not prove production TLS or OIDC login. It checks migrations, readiness, unauthenticated API denial, login redirect, manifest/icon delivery, runtime hardening, and image labels only.
 
@@ -68,9 +72,9 @@ GITHUB_TOKEN="$GITHUB_TOKEN" node scripts/release-preflight.mjs \
   --tag vMAJOR.MINOR.PATCH --repository owner/name --output preflight.json
 ```
 
-It uses `GITHUB_API_URL` when provided (otherwise `https://api.github.com`) and rejects malformed tags before API calls. The output JSON contains `tag`, `version`, `commit`, `mainCommit`, and `latestStable` after verifying a published non-draft/non-prerelease release, tag reachability from `main`, and exact `package.json` version at the tag. There is no offline or mock bypass; keep the output private until publication review.
+It uses `GITHUB_API_URL` when provided (otherwise `https://api.github.com`) and rejects malformed tags before API calls. The output JSON contains `tag`, `version`, `commit`, and `mainCommit` after verifying a published non-draft/non-prerelease release, tag reachability from `main`, and exact `package.json` version at the tag. There is no offline or mock bypass; keep the output private until publication review.
 
 
 ## 7. Owner verification boundary
 
-Hosted Actions, GitHub release/tag creation, GHCR/Docker Hub pushes, anonymous pulls, and repository settings remain unexercised until the owner completes setup and gives publication authorization. Do not describe local workflow files as a successful hosted release.
+Hosted CI and Release Please PR generation have been exercised. GitHub release/tag creation, GHCR/Docker Hub pushes, and anonymous pulls remain unverified until the first release is approved and published. Repository protection and private vulnerability reporting must be configured separately; passing CI does not prove those settings are enabled.

@@ -27,6 +27,7 @@ type UseWorkAssessmentsOptions = {
   workViewActive: boolean;
   pausedForEditing: boolean;
   signingOut: boolean;
+  available: boolean;
 };
 
 export type UseWorkAssessmentsResult = {
@@ -107,11 +108,12 @@ function matchesSavedScope(item: Item, snapshot: Snapshot, actorId: string, inde
   return matchesBaseWorkFilters(item, snapshot, index.scope, index.scope.scope, actorId, index.asOf);
 }
 
-export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidateIds, updatesItemId, workViewActive, pausedForEditing, signingOut }: UseWorkAssessmentsOptions): UseWorkAssessmentsResult {
+export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidateIds, updatesItemId, workViewActive, pausedForEditing, signingOut, available }: UseWorkAssessmentsOptions): UseWorkAssessmentsResult {
   const sessionKey = `${actor.id}\u0000${csrfToken}`;
   const [index, setIndex] = useState<AssessmentIndex | null>(null);
   const [loading, setLoading] = useState(false);
   const [metadataFresh, setMetadataFresh] = useState(false);
+  const [localToday, setLocalToday] = useState(() => new Date().toISOString().slice(0, 10));
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
   const [errorsByItemId, setErrorsByItemId] = useState<Map<string, AssessmentErrorState>>(() => new Map());
   const [pausedError, setPausedError] = useState<string | null>(null);
@@ -133,9 +135,12 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
   const actorIdRef = useRef(actor.id);
   const scopeBlockedRef = useRef(false);
   const scopeSaveAbortRef = useRef<AbortController | null>(null);
+  const preferenceAbortRef = useRef<AbortController | null>(null);
+  const preferenceGenerationRef = useRef(0);
   const workActiveRef = useRef(workViewActive);
   const pausedEditingRef = useRef(pausedForEditing);
   const signingOutRef = useRef(signingOut);
+  const availableRef = useRef(available);
   const metadataFreshRef = useRef(false);
   const pausedErrorRef = useRef<string | null>(null);
   const localStopRef = useRef(false);
@@ -176,6 +181,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     workActiveRef.current = workViewActive;
     pausedEditingRef.current = pausedForEditing;
     signingOutRef.current = signingOut;
+    availableRef.current = available;
     pausedErrorRef.current = pausedError;
     pendingRef.current = pendingIds;
     detailsRef.current = detailsByItemId;
@@ -194,17 +200,41 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     setPendingIds(new Set());
     setLoading(false);
   }, []);
+  useEffect(() => {
+    if (available) return;
+    stopScheduling();
+    metadataAbortRef.current?.abort();
+    metadataAbortRef.current = null;
+    detailAbortRefs.current.forEach(controller => controller.abort());
+    detailAbortRefs.current.clear();
+    scopeSaveAbortRef.current?.abort();
+    scopeSaveAbortRef.current = null;
+    preferenceGenerationRef.current += 1;
+    preferenceAbortRef.current?.abort();
+    preferenceAbortRef.current = null;
+    scopeBlockedRef.current = false;
+    metadataFreshRef.current = false;
+    setMetadataFresh(false);
+    setIndex(null);
+    setAnchor(null);
+    setDetailsByItemId(new Map());
+    setErrorsByItemId(new Map());
+    setRefreshRequiredIds(new Set());
+    setSavingScope(false);
+    setScopeError(null);
+    setPause(null);
+  }, [available, setPause, stopScheduling]);
 
   const readIndex = useCallback(async (signal?: AbortSignal): Promise<AssessmentIndex | null> => {
     const readSession = currentSessionRef.current;
-    if (!workActiveRef.current || signingOutRef.current || readSession !== sessionKey) return null;
+    if (!availableRef.current || !workActiveRef.current || signingOutRef.current || readSession !== sessionKey) return null;
     metadataFreshRef.current = false;
     setMetadataFresh(false);
     setLoading(true);
     try {
       const response = await fetch('/api/work/assessments', { credentials: 'same-origin', signal });
       const value = await parseResponse(response, body => assessmentIndexSchema.parse(body));
-      if (signal?.aborted || readSession !== currentSessionRef.current || readSession !== sessionKey || signingOutRef.current || !visibleRef.current || (typeof document !== 'undefined' && document.visibilityState !== 'visible')) return null;
+      if (signal?.aborted || !availableRef.current || readSession !== currentSessionRef.current || readSession !== sessionKey || signingOutRef.current || !visibleRef.current || (typeof document !== 'undefined' && document.visibilityState !== 'visible')) return null;
       const previousIndex = indexRef.current;
       if (previousIndex && (JSON.stringify(previousIndex.scope) !== JSON.stringify(value.scope) || JSON.stringify(previousIndex.scopeItemIds) !== JSON.stringify(value.scopeItemIds))) stopScheduling();
       const entriesById = new Map(value.entries.map(entry => [entry.itemId, entry]));
@@ -244,15 +274,15 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
       return value;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return null;
-      if (!signal?.aborted && readSession === currentSessionRef.current && readSession === sessionKey && !signingOutRef.current) setPause(error instanceof Error ? error.message : 'Assessments could not be loaded.');
+      if (!signal?.aborted && availableRef.current && readSession === currentSessionRef.current && readSession === sessionKey && !signingOutRef.current) setPause(error instanceof Error ? error.message : 'Assessments could not be loaded.');
       return null;
     } finally {
-      if (metadataAbortRef.current?.signal === signal && readSession === currentSessionRef.current) setLoading(false);
+      if (metadataAbortRef.current?.signal === signal && availableRef.current && readSession === currentSessionRef.current) setLoading(false);
     }
   }, [sessionKey, setPause, stopScheduling]);
 
   const refresh = useCallback(async (): Promise<AssessmentIndex | null> => {
-    if (!workActiveRef.current || signingOutRef.current) return null;
+    if (!availableRef.current || !workActiveRef.current || signingOutRef.current) return null;
     metadataAbortRef.current?.abort();
     const controller = new AbortController();
     metadataAbortRef.current = controller;
@@ -267,6 +297,9 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     detailAbortRefs.current.clear();
     scopeSaveAbortRef.current?.abort();
     scopeSaveAbortRef.current = null;
+    preferenceGenerationRef.current += 1;
+    preferenceAbortRef.current?.abort();
+    preferenceAbortRef.current = null;
     scopeBlockedRef.current = false;
     setSavingScope(false);
     setScopeError(null);
@@ -290,6 +323,8 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     clearTimeout(busyTimerRef.current);
     metadataAbortRef.current?.abort();
     assessmentAbortRef.current?.abort();
+    preferenceGenerationRef.current += 1;
+    preferenceAbortRef.current?.abort();
     scopeSaveAbortRef.current?.abort();
     detailAbortRefs.current.forEach(controller => controller.abort());
     detailAbortRefs.current.clear();
@@ -305,14 +340,17 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     if (signingOut) {
       stopScheduling();
       metadataAbortRef.current?.abort();
+      preferenceGenerationRef.current += 1;
+      preferenceAbortRef.current?.abort();
+      preferenceAbortRef.current = null;
     }
   }, [signingOut, stopScheduling]);
 
   useEffect(() => {
-    if (!workViewActive || signingOut) return;
+    if (!available || !workViewActive || signingOut) return;
     void refresh();
     return () => metadataAbortRef.current?.abort();
-  }, [refresh, sessionKey, signingOut, workViewActive]);
+  }, [available, refresh, sessionKey, signingOut, workViewActive]);
 
   useLayoutEffect(() => {
     const stars = snapshot.starredItemIds.join('\u0000');
@@ -371,20 +409,23 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
   useEffect(() => {
     if (!workViewActive || signingOut) return;
     const timer = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
+      const today = new Date().toISOString().slice(0, 10);
+      setLocalToday(previous => previous === today ? previous : today);
+      if (!availableRef.current || document.visibilityState !== 'visible') return;
       const date = inferredDate(anchorRef.current);
       if (date && anchorRef.current && date !== anchorRef.current.asOf) void refresh();
     }, CLOCK_CHECK_MS);
     return () => clearInterval(timer);
   }, [refresh, signingOut, workViewActive]);
 
-  const currentIds = useMemo(() => [...new Set(selectCandidateIds(index?.asOf ?? null))], [index?.asOf, selectCandidateIds]);
+  const currentIds = useMemo(() => [...new Set(selectCandidateIds(index?.asOf ?? localToday))], [index?.asOf, localToday, selectCandidateIds]);
   const scopeItemIds = useMemo(() => new Set(snapshot.items.filter(item => matchesSavedScope(item, snapshot, actor.id, index)).map(item => item.id)), [actor.id, index?.scope, index?.scopeItemIds, index?.asOf, snapshot]);
   const schedulingIds = useMemo(() => {
+    if (!available) return [];
     const ids = currentIds.filter(itemId => scopeItemIds.has(itemId));
     if (updatesItemId && scopeItemIds.has(updatesItemId) && !ids.includes(updatesItemId)) ids.push(updatesItemId);
     return ids;
-  }, [currentIds, scopeItemIds, updatesItemId]);
+  }, [available, currentIds, scopeItemIds, updatesItemId]);
   useLayoutEffect(() => { schedulingIdsRef.current = schedulingIds; }, [schedulingIds]);
 
   const entriesByItemId = useMemo(() => new Map((index?.entries ?? []).map(entry => [entry.itemId, entry])), [index]);
@@ -392,7 +433,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
   const entriesSignature = useMemo(() => (index?.entries ?? []).map(entry => `${entry.itemId}:${entry.state}:${entry.currentInputKey ?? ''}`).join('\u0000'), [index]);
 
   const enqueue = useCallback((itemIds: string[]) => {
-    if (scopeBlockedRef.current || !metadataFreshRef.current || !canAssessRef.current || sessionRef.current !== currentSessionRef.current || localStopRef.current || pausedErrorRef.current || pausedEditingRef.current || signingOutRef.current || !workActiveRef.current || document.visibilityState !== 'visible') return;
+    if (!availableRef.current || scopeBlockedRef.current || !metadataFreshRef.current || !canAssessRef.current || sessionRef.current !== currentSessionRef.current || localStopRef.current || pausedErrorRef.current || pausedEditingRef.current || signingOutRef.current || !workActiveRef.current || document.visibilityState !== 'visible') return;
     itemIds.forEach(itemId => {
       if (!schedulingIdsRef.current.includes(itemId) || !isInScope(itemId) || queuedRef.current.has(itemId) || pendingRef.current.has(itemId)) return;
       queuedRef.current.add(itemId);
@@ -403,7 +444,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
 
   const runItem = useCallback(async (itemId: string, expectedKey: string): Promise<void> => {
     const runSession = currentSessionRef.current;
-    if (runSession !== sessionKey || signingOutRef.current || scopeBlockedRef.current || !isInScope(itemId)) return;
+    if (!availableRef.current || runSession !== sessionKey || signingOutRef.current || scopeBlockedRef.current || !isInScope(itemId)) return;
     const generation = generationRef.current;
     const controller = new AbortController();
     assessmentAbortRef.current = controller;
@@ -411,13 +452,13 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     try {
       const response = await fetch('/api/work/assessments', { method: 'POST', credentials: 'same-origin', signal: controller.signal, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRef.current }, body: JSON.stringify({ itemId, inputKey: expectedKey }) });
       const details = await parseResponse(response, body => assessmentDetailsSchema.parse(body));
-      if (runSession !== currentSessionRef.current || runSession !== sessionKey || generation !== generationRef.current || signingOutRef.current || localStopRef.current || scopeBlockedRef.current || !isInScope(itemId)) return;
+      if (!availableRef.current || runSession !== currentSessionRef.current || runSession !== sessionKey || generation !== generationRef.current || signingOutRef.current || localStopRef.current || scopeBlockedRef.current || !isInScope(itemId)) return;
       const serviceIndex = indexRef.current;
       const currentItem = snapshotRef.current.items.find(value => value.id === itemId);
       const currentInput = serviceIndex?.provider.model && currentItem ? buildAssessmentInput(snapshotRef.current, itemId, serviceIndex.asOf) : null;
       const currentKey = currentInput && serviceIndex?.provider.model ? await assessmentInputKey(currentInput, serviceIndex.provider.model) : null;
-      if (runSession !== currentSessionRef.current || runSession !== sessionKey || !metadataFreshRef.current || !currentKey || currentKey !== expectedKey || details.record?.inputKey !== expectedKey || generation !== generationRef.current || !schedulingIdsRef.current.includes(itemId) || pausedEditingRef.current || document.visibilityState !== 'visible') {
-        if (runSession !== currentSessionRef.current || runSession !== sessionKey) return;
+      if (!availableRef.current || runSession !== currentSessionRef.current || runSession !== sessionKey || !metadataFreshRef.current || !currentKey || currentKey !== expectedKey || details.record?.inputKey !== expectedKey || generation !== generationRef.current || !schedulingIdsRef.current.includes(itemId) || pausedEditingRef.current || document.visibilityState !== 'visible') {
+        if (!availableRef.current || runSession !== currentSessionRef.current || runSession !== sessionKey) return;
         setRefreshRequiredIds(previous => new Set(previous).add(itemId));
         setDetailsByItemId(previous => { const next = new Map(previous); next.delete(itemId); return next; });
         return;
@@ -432,7 +473,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      if (runSession !== currentSessionRef.current || runSession !== sessionKey || signingOutRef.current) return;
+      if (!availableRef.current || runSession !== currentSessionRef.current || runSession !== sessionKey || signingOutRef.current) return;
       const typed = error as AssessmentError;
       if (generation !== generationRef.current) return;
       const state = { message: typed.message || 'Assessment failed.', code: typed.code, status: typed.status, retryAfterMs: typed.retryAfterMs };
@@ -461,7 +502,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
 
   const pump = useCallback(() => {
     const pumpSession = currentSessionRef.current;
-    if (scopeBlockedRef.current || !metadataFreshRef.current || !canAssessRef.current || pumpSession !== sessionKey || sessionRef.current !== pumpSession || localStopRef.current || pausedErrorRef.current || pausedEditingRef.current || signingOutRef.current || !workActiveRef.current || document.visibilityState !== 'visible' || runningRef.current || busyTimerRef.current) return;
+    if (!availableRef.current || scopeBlockedRef.current || !metadataFreshRef.current || !canAssessRef.current || pumpSession !== sessionKey || sessionRef.current !== pumpSession || localStopRef.current || pausedErrorRef.current || pausedEditingRef.current || signingOutRef.current || !workActiveRef.current || document.visibilityState !== 'visible' || runningRef.current || busyTimerRef.current) return;
     const itemId = queueRef.current.shift();
     if (!itemId) return;
     queuedRef.current.delete(itemId);
@@ -473,7 +514,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     if (!input) { pumpRef.current(); return; }
     runningRef.current = true;
     void assessmentInputKey(input, serviceIndex.provider.model).then(async expectedKey => {
-      if (scopeBlockedRef.current || !isInScope(itemId) || !metadataFreshRef.current || !canAssessRef.current || pumpSession !== currentSessionRef.current || pumpSession !== sessionKey || sessionRef.current !== pumpSession || generation !== generationRef.current || localStopRef.current || pausedErrorRef.current || pausedEditingRef.current || signingOutRef.current || !workActiveRef.current || document.visibilityState !== 'visible' || !schedulingIdsRef.current.includes(itemId)) return;
+      if (!availableRef.current || scopeBlockedRef.current || !isInScope(itemId) || !metadataFreshRef.current || !canAssessRef.current || pumpSession !== currentSessionRef.current || pumpSession !== sessionKey || sessionRef.current !== pumpSession || generation !== generationRef.current || localStopRef.current || pausedErrorRef.current || pausedEditingRef.current || signingOutRef.current || !workActiveRef.current || document.visibilityState !== 'visible' || !schedulingIdsRef.current.includes(itemId)) return;
       const entry = indexRef.current?.entries.find(value => value.itemId === itemId);
       if (entry?.currentInputKey && entry.currentInputKey !== expectedKey) {
         setRefreshRequiredIds(previous => new Set(previous).add(itemId));
@@ -494,13 +535,13 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
   useLayoutEffect(() => { pumpRef.current = pump; }, [pump]);
 
   useEffect(() => {
-    if (!index?.provider.enabled || !index.provider.model || signingOut) return;
+    if (!availableRef.current || !index?.provider.enabled || !index.provider.model || signingOut) return;
     let disposed = false;
     void Promise.all(currentIds.map(async itemId => {
       const input = buildAssessmentInput(snapshot, itemId, index.asOf);
       if (!input) return;
       const key = await assessmentInputKey(input, index.provider.model!);
-      if (disposed || currentSessionRef.current !== sessionKey || signingOutRef.current) return;
+      if (disposed || !availableRef.current || currentSessionRef.current !== sessionKey || signingOutRef.current) return;
       const entry = indexRef.current?.entries.find(value => value.itemId === itemId);
       if (entry?.currentInputKey && entry.currentInputKey !== key) {
         setRefreshRequiredIds(previous => new Set(previous).add(itemId));
@@ -512,11 +553,11 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     return () => { disposed = true; };
   }, [currentIds.join('\u0000'), entriesSignature, index?.asOf, index?.provider.enabled, index?.provider.model, snapshot.revision, signingOut, sessionKey]);
   useEffect(() => {
-    if (savingScope || scopeError || !metadataFresh || !visible || actor.role === 'viewer' || !index?.enabled || !index.scope || !index.provider.enabled || !index.provider.model || pausedError || pausedForEditing || signingOut || !workViewActive || localStopRef.current || document.visibilityState !== 'visible') return;
+    if (!availableRef.current || savingScope || scopeError || !metadataFresh || !visible || actor.role === 'viewer' || !index?.enabled || !index.scope || !index.provider.enabled || !index.provider.model || pausedError || pausedForEditing || signingOut || !workViewActive || localStopRef.current || document.visibilityState !== 'visible') return;
     let disposed = false;
     const generation = generationRef.current;
     const timer = setTimeout(() => {
-      if (disposed || generation !== generationRef.current || scopeBlockedRef.current || !metadataFreshRef.current || !visibleRef.current) return;
+      if (disposed || !availableRef.current || generation !== generationRef.current || scopeBlockedRef.current || !metadataFreshRef.current || !visibleRef.current) return;
       const serviceIndex = indexRef.current;
       const ids = schedulingIdsRef.current;
       if (!serviceIndex?.provider.model) return;
@@ -524,7 +565,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
         const input = buildAssessmentInput(snapshotRef.current, itemId, serviceIndex.asOf);
         if (!input) return;
         const key = await assessmentInputKey(input, serviceIndex.provider.model!);
-        if (disposed || generation !== generationRef.current || !metadataFreshRef.current || !visibleRef.current) return;
+        if (disposed || !availableRef.current || generation !== generationRef.current || !metadataFreshRef.current || !visibleRef.current) return;
         const entry = serviceIndex.entries.find(value => value.itemId === itemId);
         if (entry?.currentInputKey && entry.currentInputKey !== key) {
           setRefreshRequiredIds(previous => new Set(previous).add(itemId));
@@ -535,7 +576,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
       }));
     }, DEBOUNCE_MS);
     return () => { disposed = true; clearTimeout(timer); };
-  }, [savingScope, scopeError, metadataFresh, visible, actor.role, entriesSignature, index?.asOf, index?.enabled, index?.scope, index?.provider.enabled, index?.provider.model, pausedError, pausedForEditing, schedulingIds.join('\u0000'), signingOut, snapshot.revision, workViewActive, enqueue]);
+  }, [available, locallyStoppedState, savingScope, scopeError, metadataFresh, visible, actor.role, entriesSignature, index?.asOf, index?.enabled, index?.scope, index?.provider.enabled, index?.provider.model, pausedError, pausedForEditing, schedulingIds.join('\u0000'), signingOut, snapshot.revision, workViewActive, enqueue]);
 
   useEffect(() => {
     if (actor.role !== 'viewer' && !pausedForEditing && workViewActive && !signingOut) return;
@@ -543,38 +584,45 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
   }, [actor.role, pausedForEditing, signingOut, stopScheduling, workViewActive]);
 
   const setEnabled = useCallback(async (enabled: boolean): Promise<boolean> => {
-    if (signingOutRef.current || (enabled && (scopeBlockedRef.current || !indexRef.current?.scope))) return false;
+    if (!availableRef.current || signingOutRef.current || (enabled && (scopeBlockedRef.current || !indexRef.current?.scope))) return false;
     const session = currentSessionRef.current;
     localStopRef.current = true;
     setLocallyStoppedState(true);
     stopScheduling();
+    preferenceGenerationRef.current += 1;
+    preferenceAbortRef.current?.abort();
+    const controller = new AbortController();
+    preferenceAbortRef.current = controller;
+    const operationGeneration = preferenceGenerationRef.current;
     try {
-      const response = await fetch('/api/work/assessments/preference', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRef.current }, body: JSON.stringify({ enabled }) });
+      const response = await fetch('/api/work/assessments/preference', { method: 'POST', credentials: 'same-origin', signal: controller.signal, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRef.current }, body: JSON.stringify({ enabled }) });
       const preference = await parseResponse(response, body => {
         if (!body || typeof body !== 'object' || !('enabled' in body) || typeof body.enabled !== 'boolean') throw new Error('The assessment preference response was invalid.');
         return body.enabled;
       });
-      if (currentSessionRef.current !== session || signingOutRef.current) return false;
+      if (controller.signal.aborted || !availableRef.current || preferenceGenerationRef.current !== operationGeneration || currentSessionRef.current !== session || signingOutRef.current) return false;
       if (preference !== enabled) throw new Error('The assessment preference was not confirmed.');
       const fresh = await refresh();
-      if (currentSessionRef.current !== session || signingOutRef.current) return false;
+      if (controller.signal.aborted || !availableRef.current || preferenceGenerationRef.current !== operationGeneration || currentSessionRef.current !== session || signingOutRef.current) return false;
       if (!fresh || fresh.enabled !== enabled) throw new Error('The assessment preference could not be confirmed from the server.');
       setPause(null);
       localStopRef.current = false;
       setLocallyStoppedState(false);
       return true;
     } catch (error) {
-      if (currentSessionRef.current !== session || signingOutRef.current) return false;
+      if (controller.signal.aborted || !availableRef.current || preferenceGenerationRef.current !== operationGeneration || currentSessionRef.current !== session || signingOutRef.current) return false;
       setPause(error instanceof Error ? error.message : `Assessments could not be turned ${enabled ? 'on' : 'off'}.`);
       localStopRef.current = true;
       setLocallyStoppedState(true);
       return false;
+    } finally {
+      if (preferenceAbortRef.current === controller) preferenceAbortRef.current = null;
     }
   }, [refresh, setPause, stopScheduling]);
 
   const setScope = useCallback(async (scope: AssessmentScope): Promise<boolean> => {
     const session = currentSessionRef.current;
-    if (session !== sessionKey || signingOutRef.current || !canAssessRef.current || scopeSaveAbortRef.current) return false;
+    if (!availableRef.current || session !== sessionKey || signingOutRef.current || !canAssessRef.current || scopeSaveAbortRef.current) return false;
     const controller = new AbortController();
     scopeSaveAbortRef.current = controller;
     scopeBlockedRef.current = true;
@@ -588,15 +636,15 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
       const payload = assessmentScopeRequestSchema.parse({ scope });
       const response = await fetch('/api/work/assessments/scope', { method: 'POST', credentials: 'same-origin', signal: controller.signal, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfRef.current }, body: JSON.stringify(payload) });
       const saved = await parseResponse(response, body => assessmentScopeResponseSchema.parse(body));
-      if (controller.signal.aborted || currentSessionRef.current !== session || signingOutRef.current) return false;
+      if (controller.signal.aborted || !availableRef.current || currentSessionRef.current !== session || signingOutRef.current) return false;
       if (JSON.stringify(saved.scope) !== JSON.stringify(payload.scope)) throw new Error('The saved Goalie scope was not confirmed.');
       const fresh = await refresh();
-      if (controller.signal.aborted || currentSessionRef.current !== session || signingOutRef.current) return false;
+      if (controller.signal.aborted || !availableRef.current || currentSessionRef.current !== session || signingOutRef.current) return false;
       if (!fresh || JSON.stringify(fresh.scope) !== JSON.stringify(saved.scope)) throw new Error('The Goalie scope could not be confirmed. Open Scope and save again before resuming.');
       scopeBlockedRef.current = false;
       return true;
     } catch (error) {
-      if (controller.signal.aborted || currentSessionRef.current !== session || signingOutRef.current) return false;
+      if (controller.signal.aborted || !availableRef.current || currentSessionRef.current !== session || signingOutRef.current) return false;
       setScopeError(error instanceof Error ? error.message : 'The Goalie scope could not be saved. Open Scope and try again.');
       return false;
     } finally {
@@ -608,7 +656,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
   }, [refresh, sessionKey, stopScheduling]);
 
   const retryItem = useCallback((itemId: string) => {
-    if (scopeBlockedRef.current || !isInScope(itemId) || !schedulingIdsRef.current.includes(itemId) || !metadataFreshRef.current || !visibleRef.current || currentSessionRef.current !== sessionKey) return;
+    if (!availableRef.current || scopeBlockedRef.current || !isInScope(itemId) || !schedulingIdsRef.current.includes(itemId) || !metadataFreshRef.current || !visibleRef.current || currentSessionRef.current !== sessionKey) return;
     for (const key of failedKeysRef.current) if (key.startsWith(itemIdentityPrefix(itemId))) failedKeysRef.current.delete(key);
     setErrorsByItemId(previous => { const next = new Map(previous); next.delete(itemId); return next; });
     setPause(null);
@@ -617,9 +665,9 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
 
   const resume = useCallback(async () => {
     const resumeSession = currentSessionRef.current;
-    if (scopeBlockedRef.current || localStopRef.current || !visibleRef.current || resumeSession !== sessionKey) return;
+    if (!availableRef.current || scopeBlockedRef.current || localStopRef.current || !visibleRef.current || resumeSession !== sessionKey) return;
     const serviceIndex = metadataFreshRef.current ? indexRef.current : await refresh();
-    if (scopeBlockedRef.current || resumeSession !== currentSessionRef.current || localStopRef.current || !visibleRef.current || !serviceIndex?.enabled || !serviceIndex.scope || !serviceIndex.provider.enabled || !serviceIndex.provider.model) return;
+    if (!availableRef.current || scopeBlockedRef.current || resumeSession !== currentSessionRef.current || localStopRef.current || !visibleRef.current || !serviceIndex?.enabled || !serviceIndex.scope || !serviceIndex.provider.enabled || !serviceIndex.provider.model) return;
     const eligible = new Set(selectCandidateIds(serviceIndex.asOf).filter(itemId => isInScope(itemId)));
     if (updatesItemId && isInScope(updatesItemId)) eligible.add(updatesItemId);
     for (const key of failedKeysRef.current) {
@@ -631,7 +679,7 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
 
   const loadDetails = useCallback(async (itemId: string): Promise<AssessmentDetails | null> => {
     const detailSession = currentSessionRef.current;
-    if (detailSession !== sessionKey || signingOutRef.current) return null;
+    if (!availableRef.current || detailSession !== sessionKey || signingOutRef.current) return null;
     const generation = generationRef.current;
     const revision = snapshotRef.current.revision;
     detailAbortRefs.current.get(itemId)?.abort();
@@ -640,12 +688,12 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
     try {
       const response = await fetch(`/api/work/assessments?itemId=${encodeURIComponent(itemId)}`, { credentials: 'same-origin', signal: controller.signal });
       const details = await parseResponse(response, body => assessmentDetailsSchema.parse(body));
-      if (detailAbortRefs.current.get(itemId) !== controller || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
+      if (detailAbortRefs.current.get(itemId) !== controller || !availableRef.current || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
       const currentIndex = indexRef.current;
       const currentItem = snapshotRef.current.items.find(value => value.id === itemId);
       const currentInput = currentIndex?.provider.model && currentItem ? buildAssessmentInput(snapshotRef.current, itemId, currentIndex.asOf) : null;
       const currentKey = currentInput && currentIndex?.provider.model ? await assessmentInputKey(currentInput, currentIndex.provider.model) : null;
-      if (detailAbortRefs.current.get(itemId) !== controller || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
+      if (detailAbortRefs.current.get(itemId) !== controller || !availableRef.current || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
       if (details.entry.currentInputKey && currentKey && details.entry.currentInputKey !== currentKey) {
         setDetailsByItemId(previous => { const next = new Map(previous); next.delete(itemId); return next; });
         setRefreshRequiredIds(previous => new Set(previous).add(itemId));
@@ -654,10 +702,10 @@ export function useWorkAssessments({ snapshot, actor, csrfToken, selectCandidate
       if (details.sourceContext && details.record) {
         const original = buildAssessmentInput(snapshotRef.current, itemId, details.record.asOf);
         const originalKey = original ? await assessmentInputKey(original, details.record.requestTemplate.model) : null;
-        if (detailAbortRefs.current.get(itemId) !== controller || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
+        if (detailAbortRefs.current.get(itemId) !== controller || !availableRef.current || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
         if (!original || originalKey !== details.record.inputKey) details.sourceContext = null;
       }
-      if (detailAbortRefs.current.get(itemId) !== controller || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
+      if (detailAbortRefs.current.get(itemId) !== controller || !availableRef.current || detailSession !== currentSessionRef.current || detailSession !== sessionKey || generation !== generationRef.current || revision !== snapshotRef.current.revision || signingOutRef.current) return null;
       const latestEntry = indexRef.current?.entries.find(entry => entry.itemId === itemId);
       if (!latestEntry || !detailsMatchEntry(details, latestEntry)) return null;
       setDetailsByItemId(previous => new Map(previous).set(itemId, details));

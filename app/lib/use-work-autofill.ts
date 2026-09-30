@@ -101,6 +101,9 @@ export function useWorkAutofill({
   const editVersionRef = useRef(0);
   const lastStartedVersionRef = useRef(-1);
   const lastRevisionRef = useRef(snapshot.revision);
+  const lastAvailableRef = useRef(available);
+  const reenablePendingRef = useRef(false);
+  const wasAvailable = availableRef.current;
   const wasActive = activeRef.current;
   activeRef.current = active;
   savingRef.current = saving;
@@ -130,6 +133,13 @@ export function useWorkAutofill({
     requestRef.current?.abort();
     requestRef.current = null;
     if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+  if (wasAvailable !== available) {
+    sequenceRef.current += 1;
+    requestRef.current?.abort();
+    requestRef.current = null;
+    clearTimeout(timerRef.current ?? undefined);
     timerRef.current = null;
   }
   if (lastRevisionRef.current !== snapshot.revision) {
@@ -280,7 +290,7 @@ export function useWorkAutofill({
     } catch (caught) {
       if (caught instanceof Error && caught.message === 'stale') return;
       if (caught instanceof DOMException && caught.name === 'AbortError') return;
-      if (sequenceRef.current !== sequence || !activeRef.current) return;
+      if (sequenceRef.current !== sequence || !activeRef.current || !availableRef.current || !canEditRef.current || !enabledRef.current || savingRef.current) return;
       setError(errorMessage(caught));
       setStatus('error');
     } finally {
@@ -289,9 +299,11 @@ export function useWorkAutofill({
   }, [abortCurrent, applyResult, isCurrent, requestAssist, setDirty, setDraft]);
 
   const schedule = useCallback((version: number) => {
+    if (!availableRef.current || !activeRef.current || !canEditRef.current || !enabledRef.current || savingRef.current) return;
     clearTimeout(timerRef.current ?? undefined);
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
+      if (!availableRef.current) return;
       void runChain(version, false);
     }, DEBOUNCE_MS);
   }, [runChain]);
@@ -392,6 +404,19 @@ export function useWorkAutofill({
       if (window.localStorage.getItem(ASSIST_DISABLED_STORAGE_KEY) === '1') setEnabledState(false);
     } catch { /* storage can be unavailable in hardened browsers */ }
   }, [available]);
+  useEffect(() => {
+    const wasAvailable = lastAvailableRef.current;
+    lastAvailableRef.current = available;
+    if (!available) return;
+    if (!wasAvailable) reenablePendingRef.current = true;
+    if (!reenablePendingRef.current || !active || !canEdit || !enabledState || saving) return;
+    const currentDraft = draftRef.current;
+    if (!currentDraft?.title.trim()) return;
+    inferencePendingRef.current = true;
+    inferenceTriggerRef.current = `${currentDraft.title}\u0000${currentDraft.description}\u0000${currentDraft.workstreamId}`;
+    reenablePendingRef.current = false;
+    schedule(editVersionRef.current);
+  }, [active, available, canEdit, enabledState, saving, schedule]);
 
   useEffect(() => {
     setStatus(!available ? 'unavailable' : enabledState ? 'idle' : 'off');

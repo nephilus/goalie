@@ -33,6 +33,10 @@ Shared mutations run through the typed schemas in `app/shared/work.ts`, authoriz
 
 ## Assessments and optional suggestions
 
+The sidebar footer groups **AI assistance** and **Debug mode** switches; mobile navigation exposes the same controls at the bottom of its drawer. AI assistance is a personal, default-off preference stored per account in this browser and synchronized across its tabs. It does not change another user's settings or the server's provider configuration, and is not an API/MCP authorization boundary.
+
+Effective UI availability requires both that preference and valid server-side Jev configuration. When either is off, draft suggestions, assessments, AI badges, diagnostics, and decision filters are hidden; scheduled requests stop, in-flight client requests are aborted, and late responses are ignored. Existing decision-filter selections do not hide manual work while AI is off. Saved assessments and scope preferences are not deleted. Configured availability is not a live model-health probe: an unreachable or failing provider produces an assistance error without blocking manual fields or Save/Create. Debug is independent and does not enable AI.
+
 Saved-work Goalie decisions are a separate, experimental opt-in from draft assistance. A saved scope combines the account's chosen work filters and is checked server-side before work is assessed and before a result is attached. Current result labels are **Needs decision**, **Ok** (No outstanding decision evidenced), and **Unclear**. They are not health, urgency, or guaranteed absence claims. Debug inspection is off by default; diagnostics show the bounded input, rubric, model metadata, and timing only when explicitly opened.
 
 Assessment input is deliberately bounded: UTC assessment day, saved title, description, status, blocker, and the latest 20 complete updates plus omission metadata. Dates, goals, workstreams, tags, stars, people records, IDs, unrelated work, and drafts are not provider input. Completed work is excluded; title-only records may receive a rules-only unclear result. Provider errors remain visible and require explicit recovery.

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/nephilus/goalie/compare/v0.1.0...v0.2.0) (2026-10-01)
+
+
+### Features
+
+* **deploy:** add hardened Bun image and Kubernetes qualification ([4fc6281](https://github.com/nephilus/goalie/commit/4fc628181eaa8febfa7d21940dec17ad0c5669a3))
+* **ui:** add personal AI and debug controls ([#2](https://github.com/nephilus/goalie/issues/2)) ([c1de405](https://github.com/nephilus/goalie/commit/c1de405d3e310498d8f50e7b0be030677399d9c8))
+
 ## 0.1.0 (2026-09-29)
 
 

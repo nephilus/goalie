@@ -159,6 +159,18 @@ a distinct migration owner. Failed hooks retain Job diagnostics for up to one da
 the next attempt replaces the prior hook. Disabling migrations requires an externally
 prepared schema. No seed/startup migration or database rollback is provided.
 Workload rollback requires schema compatibility; Helm rollback cannot undo SQL.
+The chart accepts optional `hostAliases` entries (`ip` plus one or more
+hostnames); they are rendered only on the application PodSpec and default to
+empty. Use them only for a narrowly scoped per-pod name override, and ensure
+the destination certificate is valid for the configured hostname. The
+pre-install/pre-upgrade migration Job inherits the chart's node selector,
+tolerations, affinity, and container resources so placement and quota policy
+also apply before rollout.
+
+`node scripts/check-chart.mjs` rejects malformed alias entries. The
+Kubernetes acceptance command below exercises the migration hook and app on a
+tainted shared worker and validates HTTPS OIDC discovery through a pod-local
+host alias; it uses a private disposable kind cluster and synthetic services.
 
 Default replicas are one. Requests100m/128Mi and limits1000m/512Mi are initial
 tunable values, not capacity claims. PDB requires at least two replicas.

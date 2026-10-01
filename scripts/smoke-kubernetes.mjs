@@ -227,7 +227,7 @@ async function loadImage(identity = imageIdentity(image)) {
 async function createCluster() {
   owned.kubeconfig = join(owned.tempDirectory, 'kubeconfig');
   const apiServerPort = await freePort();
-  const config = `kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnetworking:\n  apiServerAddress: 127.0.0.1\n  apiServerPort: ${apiServerPort}\nnodes:\n- role: control-plane\n`;
+  const config = `kind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnetworking:\n  apiServerAddress: 127.0.0.1\n  apiServerPort: ${apiServerPort}\nnodes:\n- role: control-plane\n- role: worker\n  kubeadmConfigPatches:\n  - |\n    kind: JoinConfiguration\n    nodeRegistration:\n      kubeletExtraArgs:\n        node-labels: dctlab.io/pool=shared\n        register-with-taints: dctlab.io/pool=shared:NoSchedule\n`;
   const configPath = join(owned.tempDirectory, 'kind.yaml');
   await writeFile(configPath, config, { mode: 0o600 });
   const existing = await kind(['get', 'clusters'], { allowFailure: true });
@@ -237,6 +237,11 @@ async function createCluster() {
   const current = (await kubectl(['config', 'current-context'])).stdout.trim();
   assert.equal(current, contextName, 'kind did not create the expected private context');
   await kubectl(['cluster-info']);
+  await kubectl(['taint', 'node', `${clusterName}-control-plane`, 'node-role.kubernetes.io/control-plane:NoSchedule-']);
+  const nodes = await getJson(['get', 'nodes']);
+  const worker = nodes.items.find(node => node.metadata.labels['dctlab.io/pool'] === 'shared');
+  assert(worker, 'Disposable shared worker was not registered with its initial shared-pool label');
+  assert(worker.spec.taints?.some(taint => taint.key === 'dctlab.io/pool' && taint.value === 'shared' && taint.effect === 'NoSchedule'), 'Disposable shared worker was not registered tainted');
 }
 
 async function namespaceSetup() {
@@ -276,6 +281,13 @@ async function chartValues(fixture) {
   values.image = { ...(values.image || {}), repository: localImage.split(':')[0], tag: localImage.split(':').slice(1).join(':'), digest: '', pullPolicy: 'Never' };
   values.replicaCount = 1;
   values.migration = { ...(values.migration || {}), enabled: true };
+  values.nodeSelector = { ...(values.nodeSelector || {}), 'dctlab.io/pool': 'shared' };
+  values.tolerations = [...(values.tolerations || []), { key: 'dctlab.io/pool', operator: 'Equal', value: 'shared', effect: 'NoSchedule' }];
+  values.resources = values.resources || { requests: { cpu: '100m', memory: '128Mi' }, limits: { cpu: '1', memory: '512Mi' } };
+  const dexService = await getJson(['get', 'service', fixture.dex.serviceName, '-n', fixtureNamespace]);
+  assert(dexService.spec.clusterIP && dexService.spec.clusterIP !== 'None', 'Dex fixture Service has no ClusterIP for alias routing');
+  values.oidc.issuer = fixture.dex.issuer;
+  values.hostAliases = [{ ip: dexService.spec.clusterIP, hostnames: ['dex.goaliesmoke.test'] }];
   values.podAnnotations = { ...(values.podAnnotations || {}), 'goalie.smoke/revision': expectedRevision };
   return values;
 }
@@ -312,13 +324,41 @@ async function renderServerDryRuns(chartPath, values) {
   }
 }
 
-async function installChart(chartPath, valuesPath) {
-  await helm(['install', releaseName, chartPath, '--namespace', appNamespace, '--values', valuesPath, '--wait', '--timeout', HELM_TIMEOUT]);
+async function installChart(chartPath, valuesPath, values) {
+  let installationFinished = false;
+  const migrationPod = waitUntil('migration hook scheduling observation', async () => {
+    if (installationFinished) return false;
+    const result = await kubectl(['get', 'pods', '-n', appNamespace, '-l', `app.kubernetes.io/instance=${releaseName},app.kubernetes.io/component=migration`, '-o', 'json'], { allowFailure: true });
+    if (result.code) return false;
+    return mustJson(result.stdout, 'migration hook pod list').items?.find(pod => pod.spec?.nodeName) || false;
+  }, 10 * 60_000, 250).catch(error => error);
+  let installError;
+  try {
+    await helm(['install', releaseName, chartPath, '--namespace', appNamespace, '--values', valuesPath, '--wait', '--timeout', HELM_TIMEOUT]);
+  } catch (error) {
+    installError = error;
+  } finally {
+    installationFinished = true;
+  }
+  const observedMigration = await migrationPod;
+  if (installError) throw installError;
+  if (observedMigration instanceof Error) throw observedMigration;
+  const worker = (await getJson(['get', 'nodes'])).items.find(node => node.metadata.labels['dctlab.io/pool'] === 'shared');
+  assert(worker && observedMigration.spec.nodeName === worker.metadata.name, 'Initial migration hook did not execute on the tainted shared worker');
+  assert.deepEqual(observedMigration.spec.nodeSelector, { 'dctlab.io/pool': 'shared' }, 'Migration hook did not inherit the shared-worker selector');
+  assert(observedMigration.spec.tolerations?.some(toleration => toleration.key === 'dctlab.io/pool' && toleration.operator === 'Equal' && toleration.value === 'shared' && toleration.effect === 'NoSchedule'), 'Migration hook did not tolerate the shared-worker taint');
+  const migrationContainer = observedMigration.spec.containers.find(container => container.name === 'migration');
+  assert.deepEqual(migrationContainer.resources, values.resources, 'Migration hook did not inherit chart resource limits');
   await helm(['test', releaseName, '--namespace', appNamespace, '--logs', '--timeout', HELM_TIMEOUT]);
   await waitUntil('application readiness', async () => {
     const response = await appRequest('/health');
     return response.status === 200;
   }, 180_000);
+  const deployment = await deploymentTemplate();
+  assert.deepEqual(deployment.spec.template.spec.hostAliases, [{ ip: values.hostAliases[0].ip, hostnames: ['dex.goaliesmoke.test'] }], 'Application PodSpec did not receive the configured OIDC hostname alias');
+  assert(deployment.spec.template.spec.tolerations?.some(toleration => toleration.key === 'dctlab.io/pool' && toleration.value === 'shared'), 'Application does not tolerate the shared-worker taint');
+  const appPod = await getReadyAppPod();
+  assert.equal(appPod.spec.nodeName, worker.metadata.name, 'Application did not schedule onto the shared worker');
 }
 
 async function revisionAndImageCheck() {
@@ -628,7 +668,7 @@ try {
   const valuesPath = await writeJson('values', values);
   const chartPath = await packageChart(valuesPath);
   await renderServerDryRuns(chartPath, values);
-  await installChart(chartPath, valuesPath);
+  await installChart(chartPath, valuesPath, values);
   await revisionAndImageCheck();
   await migrationLedgerCheck(currentFixture);
   const work = await seedSyntheticWork(currentFixture, fixtureModule);
@@ -645,10 +685,10 @@ try {
     await writeReport({
       status: 'passed', imageId: identity.id, architecture: 'amd64', qualifiedAt: new Date().toISOString(),
       chart: { file: 'qualified-chart.tgz', sha256: createHash('sha256').update(chartBytes).digest('hex'), version: releaseVersion, appVersion: releaseVersion },
-      checks: ['migration-checksums', 'helm-test', 'upgrade-persistence', 'migration-failure-gate', 'database-outage-probes', 'pod-recreation', 'sigterm', 'database-and-oidc-tls', 'restricted-admission', 'read-only-rootfs', 'private-key-projection', 'no-provider-inference', 'optional-resources-server-dry-run'],
+      checks: ['migration-checksums', 'tainted-worker-migration-placement-and-resources', 'tainted-worker-app-placement', 'pod-local-oidc-host-alias-with-https-tls', 'helm-test', 'upgrade-persistence', 'migration-failure-gate', 'database-outage-probes', 'pod-recreation', 'sigterm', 'database-and-oidc-tls', 'restricted-admission', 'read-only-rootfs', 'private-key-projection', 'no-provider-inference', 'optional-resources-server-dry-run'],
     });
   }
-  console.log(`Kubernetes smoke passed: cluster ${clusterName}, image ${localImage} config ${identity.id}, migration/Helm, persistence, outage probes, restart/SIGTERM, TLS CA rejection, PSS/rootfs, AI projection, optional dry-runs, packaged chart`);
+  console.log(`Kubernetes smoke passed: cluster ${clusterName}, image ${localImage} config ${identity.id}, tainted-worker hook/app scheduling and resources, pod-local HTTPS OIDC alias, migration/Helm, persistence, outage probes, restart/SIGTERM, TLS CA rejection, PSS/rootfs, AI projection, optional dry-runs, packaged chart`);
 } catch (error) {
   const location = await collectDiagnostics(errorText(error)).catch(() => 'unavailable');
   await writeReport({ status: 'error', error: redact(errorText(error)), diagnostics: location }).catch(() => { });

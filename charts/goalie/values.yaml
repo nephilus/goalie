@@ -14,12 +14,11 @@ revisionHistoryLimit: 3
 serviceAccount:
   name: default
   automountServiceAccountToken: false
-
 podAnnotations: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}
-
+hostAliases: []
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532

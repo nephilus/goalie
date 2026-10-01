@@ -27,6 +27,10 @@ try {
   run(['lint', '--strict', chart], base);
   run(['template', 'qualification', chart], base);
   run(['template', 'qualification', chart], {
+    ...base,
+    hostAliases: [{ ip: '10.5.0.1', hostnames: ['aorus1.troodon-fort.ts.net'] }],
+  });
+  run(['template', 'qualification', chart], {
     ...base, replicaCount: 2,
     database: { ...base.database, caSecretRef: { name: 'db-ca', key: 'ca.crt' } },
     trust: { caSecretRef: { name: 'trust', key: 'ca.crt' } },
@@ -58,6 +62,10 @@ try {
     { ...base, containerSecurityContext: { readOnlyRootFilesystem: false } },
     { ...base, probes: { liveness: { path: '/health' } } },
     { ...base, probes: { readiness: { path: '/livez' } } },
+    { ...base, hostAliases: [{ ip: 'not-an-ip', hostnames: ['oidc.example.test'] }] },
+    { ...base, hostAliases: [{ ip: '10.5.0.1', hostnames: [] }] },
+    { ...base, hostAliases: [{ ip: '10.5.0.1', hostnames: [''] }] },
+    { ...base, hostAliases: [{ ip: '10.5.0.1', hostnames: ['oidc.example.test'], extra: true }] },
     { ...base, probes: { startup: { path: '/health' } } },
   ];
   for (const values of invalid) run(['template', 'qualification', chart], values, false);

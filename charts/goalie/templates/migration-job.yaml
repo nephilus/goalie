@@ -35,6 +35,18 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
         seccompProfile:
           type: RuntimeDefault
+      {{ with .Values.nodeSelector }}
+      nodeSelector:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
+      {{ with .Values.affinity }}
+      affinity:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
+      {{ with .Values.tolerations }}
+      tolerations:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
       {{ $pullSecrets := default (list) .Values.imagePullSecrets }}
       {{ if $pullSecrets }}
       imagePullSecrets:
@@ -50,6 +62,8 @@ spec:
             - build/migrate.mjs
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           env:
             - name: NODE_ENV
               value: production

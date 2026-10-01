@@ -128,6 +128,15 @@ kubeconfig, sysctls or security settings. Hosted CI uses Docker; local Podman us
 kind's experimental provider. A failed prerequisite blocks acceptance rather than
 authorizing host changes. Downloads have bounded deadlines and verified upstream
 checksums; failures identify the URL.
+The Kubernetes smoke creates one untainted control-plane node and one worker
+registered with `dctlab.io/pool=shared` and its `NoSchedule` taint. The initial
+Helm migration hook and app must both schedule on that worker using the chart
+selector/toleration; the hook's rendered resources are checked as well. The
+synthetic Dex certificate includes `dex.goaliesmoke.test`, and the app reaches
+OIDC discovery over HTTPS through a Pod-only `hostAliases` mapping to the Dex
+Service IP. This exercises certificate hostname verification, not a global
+DNS or host-file change. The same command still runs the existing
+database/OIDC CA rejection and application acceptance checks.
 The app archive uses an explicit `localhost/goalie-smoke:<unique>` tag so Podman
 and Kubernetes resolve the same name. Acceptance checks both the exact loaded
 tag and immutable config digest before starting pull-policy-`Never` workloads.

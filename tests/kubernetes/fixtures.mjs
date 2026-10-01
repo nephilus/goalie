@@ -159,16 +159,17 @@ export async function createFixtures({ directory, namespace = 'goalie-app', fixt
  const dexHost = serviceHost(DEX_SERVICE, fixtureNamespace);
  const providerHost = serviceHost(PROVIDER_SERVICE, fixtureNamespace);
  const postgresCert = await createLeafCertificate(run, root, ca, 'postgres', [POSTGRES_SERVICE, postgresHost, `${POSTGRES_SERVICE}.${fixtureNamespace}.svc`]);
- const dexCert = await createLeafCertificate(run, root, ca, 'dex', [DEX_SERVICE, dexHost, `${DEX_SERVICE}.${fixtureNamespace}.svc`]);
+ const dexHostAlias = 'dex.goaliesmoke.test';
+ const dexCert = await createLeafCertificate(run, root, ca, 'dex', [DEX_SERVICE, dexHost, `${DEX_SERVICE}.${fixtureNamespace}.svc`, dexHostAlias]);
  const providerCert = await createLeafCertificate(run, root, ca, 'provider', [PROVIDER_SERVICE, providerHost, `${PROVIDER_SERVICE}.${fixtureNamespace}.svc`]);
  const caText = await readFile(ca.cert, 'utf8');
  const postgresPem = await readCertFiles(postgresCert);
  const dexPem = await readCertFiles(dexCert);
  const providerPem = await readCertFiles(providerCert);
  const appURL = `https://${APP_SERVICE}.${namespace}.svc.cluster.local`;
- const dexIssuer = `https://${dexHost}:5554/dex`;
- const dexPasswordHash = await hash(DEX_EDITOR_PASSWORD, 10);
+ const dexIssuer = `https://${dexHostAlias}:5554/dex`;
  const databaseUrl = `postgresql://${encodeURIComponent(DB_USER)}:${encodeURIComponent(DB_PASSWORD)}@${postgresHost}:5432/${DB_NAME}?sslmode=verify-full`;
+ const dexPasswordHash = await hash(DEX_EDITOR_PASSWORD, 10);
  const dexConfig = [
   `issuer: ${dexIssuer}`,
   'enablePasswordDB: true',

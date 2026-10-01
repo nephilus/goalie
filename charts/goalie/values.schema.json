@@ -12,8 +12,8 @@
     "nodeSelector",
     "tolerations",
     "affinity",
+    "hostAliases",
     "podSecurityContext",
-    "containerSecurityContext",
     "resources",
     "terminationGracePeriodSeconds",
     "app",
@@ -56,6 +56,31 @@
     "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
     "tolerations": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
     "affinity": { "type": "object", "additionalProperties": true },
+    "hostAliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ip", "hostnames"],
+        "properties": {
+          "ip": {
+            "oneOf": [
+              { "type": "string", "format": "ipv4" },
+              { "type": "string", "format": "ipv6" }
+            ]
+          },
+          "hostnames": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"
+            }
+          }
+        }
+      }
+    },
     "podSecurityContext": { "$ref": "#/definitions/podSecurityContext" },
     "containerSecurityContext": { "$ref": "#/definitions/containerSecurityContext" },
     "resources": { "$ref": "#/definitions/resources" },

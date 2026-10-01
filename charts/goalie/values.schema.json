@@ -1,0 +1,361 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image",
+    "imagePullSecrets",
+    "replicaCount",
+    "revisionHistoryLimit",
+    "serviceAccount",
+    "podAnnotations",
+    "nodeSelector",
+    "tolerations",
+    "affinity",
+    "podSecurityContext",
+    "containerSecurityContext",
+    "resources",
+    "terminationGracePeriodSeconds",
+    "app",
+    "oidc",
+    "database",
+    "trust",
+    "service",
+    "probes",
+    "migration",
+    "openjev",
+    "ingress",
+    "pdb",
+    "networkPolicy"
+  ],
+  "properties": {
+    "image": { "$ref": "#/definitions/image" },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 }
+        }
+      }
+    },
+    "replicaCount": { "type": "integer", "minimum": 1, "maximum": 100 },
+    "revisionHistoryLimit": { "type": "integer", "minimum": 0, "maximum": 20 },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "automountServiceAccountToken"],
+      "properties": {
+        "name": { "type": "string", "enum": ["default"] },
+        "automountServiceAccountToken": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "podAnnotations": { "$ref": "#/definitions/stringMap" },
+    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "tolerations": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "affinity": { "type": "object", "additionalProperties": true },
+    "podSecurityContext": { "$ref": "#/definitions/podSecurityContext" },
+    "containerSecurityContext": { "$ref": "#/definitions/containerSecurityContext" },
+    "resources": { "$ref": "#/definitions/resources" },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "maxRequestBodyBytes", "bootstrapEmail"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https://[^/?#]+/?$",
+          "description": "HTTPS origin without a path, query, or fragment."
+        },
+        "maxRequestBodyBytes": { "type": "integer", "minimum": 1024, "maximum": 20000000 },
+        "bootstrapEmail": { "type": "string", "maxLength": 320 }
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer", "clientId", "clientSecretRef"],
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https://[^?#]+$",
+          "description": "HTTPS OIDC issuer; credentials, query, and fragment are not allowed."
+        },
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "clientSecretRef": { "$ref": "#/definitions/secretRef" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urlSecretRef", "caSecretRef", "poolMax"],
+      "properties": {
+        "urlSecretRef": { "$ref": "#/definitions/secretRef" },
+        "caSecretRef": { "$ref": "#/definitions/optionalSecretRef" },
+        "poolMax": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caSecretRef"],
+      "properties": {
+        "caSecretRef": { "$ref": "#/definitions/optionalSecretRef" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "port", "targetPort", "annotations"],
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP"] },
+        "port": { "type": "integer", "enum": [4310] },
+        "targetPort": { "type": "string", "enum": ["http"] },
+        "annotations": { "$ref": "#/definitions/stringMap" }
+      }
+    },
+    "probes": { "$ref": "#/definitions/probes" },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "urlSecretRef", "backoffLimit", "activeDeadlineSeconds", "ttlSecondsAfterFinished"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "urlSecretRef": { "$ref": "#/definitions/optionalSecretRef" },
+        "backoffLimit": { "type": "integer", "enum": [0] },
+        "activeDeadlineSeconds": { "type": "integer", "enum": [300] },
+        "ttlSecondsAfterFinished": { "type": "integer", "enum": [86400] }
+      }
+    },
+    "openjev": { "$ref": "#/definitions/openjev" },
+    "ingress": { "$ref": "#/definitions/ingress" },
+    "pdb": { "$ref": "#/definitions/pdb" },
+    "networkPolicy": { "$ref": "#/definitions/networkPolicy" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "pdb": { "properties": { "enabled": { "enum": [false] } } }
+      }
+    },
+    {
+      "required": ["replicaCount", "pdb"],
+      "properties": {
+        "replicaCount": { "minimum": 2 },
+        "pdb": { "properties": { "enabled": { "enum": [true] } } }
+      }
+    }
+  ],
+  "definitions": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$", "maxLength": 253 },
+        "key": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 253 }
+      }
+    },
+    "optionalSecretRef": {
+      "oneOf": [
+        { "$ref": "#/definitions/secretRef" },
+        { "type": "object", "maxProperties": 0 }
+      ]
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest", "tag", "pullPolicy"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^([a-z0-9]([a-z0-9-]*[a-z0-9])?([.][a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]+)?/)?[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$"
+        },
+        "digest": { "type": "string" },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["IfNotPresent", "Never"] }
+      },
+      "oneOf": [
+        {
+          "required": ["digest"],
+          "properties": {
+            "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "pullPolicy": { "enum": ["IfNotPresent"] }
+          }
+        },
+        {
+          "required": ["tag"],
+          "properties": {
+            "digest": { "enum": [""] },
+            "tag": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$", "not": { "enum": ["latest"] } },
+            "pullPolicy": { "enum": ["Never"] }
+          }
+        }
+      ]
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runAsNonRoot", "runAsUser", "runAsGroup", "fsGroup", "fsGroupChangePolicy"],
+      "properties": {
+        "runAsNonRoot": { "enum": [true] },
+        "runAsUser": { "enum": [65532] },
+        "runAsGroup": { "enum": [65532] },
+        "fsGroup": { "enum": [65532] },
+        "fsGroupChangePolicy": { "enum": ["OnRootMismatch"] }
+      }
+    },
+    "containerSecurityContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowPrivilegeEscalation", "readOnlyRootFilesystem", "capabilities", "seccompProfile"],
+      "properties": {
+        "allowPrivilegeEscalation": { "enum": [false] },
+        "readOnlyRootFilesystem": { "enum": [true] },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["drop"],
+          "properties": { "drop": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "enum": ["ALL"] } } }
+        },
+        "seccompProfile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "enum": ["RuntimeDefault"] } }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": { "$ref": "#/definitions/resourcePair" },
+        "limits": { "$ref": "#/definitions/resourcePair" }
+      }
+    },
+    "resourcePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": { "type": "string", "minLength": 1 },
+        "memory": { "type": "string", "minLength": 1 }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "periodSeconds", "timeoutSeconds", "failureThreshold"],
+      "properties": {
+        "path": { "type": "string", "enum": ["/livez", "/health"] },
+        "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "failureThreshold": { "type": "integer", "minimum": 1, "maximum": 120 }
+      }
+    },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startup", "liveness", "readiness"],
+      "properties": {
+        "startup": { "allOf": [{ "$ref": "#/definitions/probe" }, { "properties": { "path": { "const": "/livez" } } }] },
+        "liveness": { "allOf": [{ "$ref": "#/definitions/probe" }, { "properties": { "path": { "const": "/livez" } } }] },
+        "readiness": { "allOf": [{ "$ref": "#/definitions/probe" }, { "properties": { "path": { "const": "/health" } } }] }
+      }
+    },
+    "openjev": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "baseUrl", "trustedOrigin", "model", "timeoutMs", "apiKeySecretRef"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "baseUrl": { "type": "string" },
+        "trustedOrigin": { "type": "string" },
+        "model": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\s]+$" },
+        "timeoutMs": { "type": "integer", "minimum": 10, "maximum": 120000 },
+        "apiKeySecretRef": { "$ref": "#/definitions/optionalSecretRef" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "enabled": { "enum": [false] },
+            "baseUrl": { "enum": [""] },
+            "trustedOrigin": { "enum": [""] },
+            "apiKeySecretRef": { "type": "object", "maxProperties": 0 }
+          }
+        },
+        {
+          "required": ["baseUrl", "trustedOrigin", "apiKeySecretRef"],
+          "properties": {
+            "enabled": { "enum": [true] },
+            "baseUrl": { "type": "string", "minLength": 1, "pattern": "^https://[^/?#]+/?$" },
+            "trustedOrigin": { "type": "string", "minLength": 1, "pattern": "^https://[^/?#]+/?$" },
+            "apiKeySecretRef": { "$ref": "#/definitions/secretRef" }
+          }
+        }
+      ]
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "className", "annotations", "host", "tlsSecretName", "path", "pathType"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "host": { "type": "string" },
+        "tlsSecretName": { "type": "string" },
+        "path": { "type": "string", "enum": ["/"] },
+        "pathType": { "type": "string", "enum": ["Prefix"] }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "enabled": { "enum": [false] }
+          }
+        },
+        {
+          "required": ["className", "host", "tlsSecretName"],
+          "properties": {
+            "enabled": { "enum": [true] },
+            "className": { "type": "string", "minLength": 1 },
+            "host": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$" },
+            "tlsSecretName": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$" }
+          }
+        }
+      ]
+    },
+    "pdb": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "minAvailable"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "ingress", "egress"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingress": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "egress": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+      }
+    }
+  }
+}

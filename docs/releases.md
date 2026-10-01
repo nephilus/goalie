@@ -47,7 +47,20 @@ The GHCR application guard checks the remote target before every write, but it c
 
 ## 6. CI, release, and image handoff
 
-The reusable CI workflow runs on pull requests and pushes to `main`, and can be called for an exact release commit. It runs Node 24.14.0, Bun 1.4.2, disposable PostgreSQL, typecheck, TAP tests, a build, and native linux/amd64 image acceptance. With `export-image=true`, it uploads the `goalie-image` artifact containing that tested image tar and metadata for **7 days**. The publish workflow downloads that artifact; it does not rebuild between smoke and push. ARM images are not published. No registry image is available from this preparation yet.
+Pull requests run secret-free Node24.14/Bun1.4.2 source checks, disposable PostgreSQL tests with zero skips/cancellations, application build, and Helm validation. They explicitly defer authenticated image qualification. Trusted main pushes, weekly main runs, and validated release calls build one native linux/amd64 DHI image and require image smoke, fresh vulnerability scan and same-image kind/Helm acceptance. Missing DHI credentials or any failed gate blocks export. With `export-image=true`, the 7-day `goalie-image` artifact contains the tested tar, metadata, qualified chart, scan/SBOM evidence, qualification summary, BOM and checksums. Publication loads that tar without rebuilding. ARM is not qualified. The new authenticated pipeline must pass on a trusted runner before this candidate is released.
+
+Provision separate read-only DHI credentials privately as Actions secrets
+`DHI_USERNAME` and `DHI_TOKEN`; do not reuse Docker Hub publication credentials.
+The reusable workflow declares these explicitly, and publication passes only those
+two secrets. PR jobs receive neither. The trusted gate verifies source reachability
+from main before privileged image work; arbitrary untrusted refs cannot export.
+Registry authentication uses temporary isolated storage and is removed afterward.
+
+Weekly `0 6 * * 1` runs requalify pinned main and separately rescan the latest
+published stable GHCR version through the existing release validator. No published
+stable release is an explicit no-rescan outcome; inability to access or scan an
+existing release is a failure. Main scans do not identify deployed customer images.
+Available scan reports upload even when a gate fails; failed candidates never export.
 
 A normal release path is:
 
@@ -63,7 +76,7 @@ A normal release path is:
 
 Two-registry publication is nonatomic. If one registry succeeds and the other fails, the workflow reports which succeeded and does not delete or roll it back. Rerunning the failed job with the retained 7-day artifact is supported. After that artifact expires, recover the original image from a registry or other retained store, or use a new version. Rebuilding can produce a different image and may conflict with an existing immutable tag; it cannot overwrite that tag.
 
-The smoke harness does not prove production TLS or OIDC login. It checks migrations, readiness, unauthenticated API denial, login redirect, manifest/icon delivery, runtime hardening, and image labels only.
+The container smoke alone checks migrations, readiness, unauthenticated API denial, login redirect, manifest/icon delivery, Bun runtime hardening and identity. Separate disposable Kubernetes acceptance exercises production PostgreSQL/OIDC TLS, probe behavior, migration-failure rollout blocking and key projection. Synthetic fixtures are not proof of actual GitLab/EDB integration. Interactive Bun/Dex authentication and manual work/cancellation qualification remain required runtime checks.
 
 The checked-in preflight helper can be exercised with repository-read GitHub credentials:
 
@@ -77,4 +90,38 @@ It uses `GITHUB_API_URL` when provided (otherwise `https://api.github.com`) and 
 
 ## 7. Owner verification boundary
 
-Hosted CI and Release Please PR generation have been exercised. GitHub release/tag creation, GHCR/Docker Hub pushes, and anonymous pulls remain unverified until the first release is approved and published. Repository protection and private vulnerability reporting must be configured separately; passing CI does not prove those settings are enabled.
+The earlier source CI and Release Please PR generation were exercised; that does not qualify the new DHI/Helm pipeline. Authenticated builds/scans and all image-dependent acceptance must pass before release. GitHub release/tag creation, registry publication, air-gap transfer and deployment require their own authorization. Repository protection and private vulnerability reporting are configured separately; passing CI does not prove those settings.
+
+## 8. Air-gap delivery
+
+Build and scan outside the air gap. After all image gates pass, package with:
+
+```sh
+CONTAINER_ENGINE=podman EXPECTED_REVISION=<qualified-source-sha> \
+  node scripts/package-image.mjs <tested-image> <report-directory> <empty-bundle-directory>
+```
+
+The packager requires matching scan, container-smoke and Kubernetes success evidence,
+including the hash of the exact installed chart. It verifies the final tar by loading
+it into a second uniquely owned kind node and comparing image config identity.
+It never rebuilds or pushes. `metadata.json` retains the publication identity contract;
+`bom.json` and `SHA256SUMS` cover the image, chart and evidence.
+No credentials, CA private keys, fixture images, Dex/PostgreSQL services or operators
+belong in the bundle. Candidate artifacts are not public releases.
+
+A local build containing uncommitted changes is not a build of its base commit,
+even when that commit appears in the image's revision label. Keep such output
+explicitly classified as an uncommitted local candidate in its provenance and
+checksummed bill of materials; do not claim an exact source SHA or release readiness.
+Commit/review the implementation and qualify that exact commit through trusted CI
+before using the publication handoff.
+
+Inside the approved transfer boundary, verify `sha256sum -c SHA256SUMS` before
+`docker load --input goalie-image.tar` (or Podman equivalent). Compare the loaded
+config ID to `metadata.json`. Only after separate approval of the exact internal
+registry/repository may an operator tag/push the loaded image. Record the resulting
+destination registry manifest digest; it is not the image config ID.
+Install the supplied local chart with that internal repository/digest, existing
+pull credentials and existing GitLab/CNPG Secrets. Do not run `helm dependency update`,
+download packages, or give the cluster DHI credentials/public-registry dependencies.
+Back up/review schema before installation; Helm rollback does not undo migrations.

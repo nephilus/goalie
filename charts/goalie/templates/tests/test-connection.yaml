@@ -1,0 +1,61 @@
+{{- include "goalie.validate" . -}}
+{{- $pullSecrets := default (list) .Values.imagePullSecrets -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "goalie.fullname" . }}-test
+  labels:
+    {{- include "goalie.hookLabels" (dict "context" . "component" "test") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 120
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "goalie.hookSelectorLabels" (dict "context" . "component" "test") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | quote }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        seccompProfile:
+          type: RuntimeDefault
+      {{ if $pullSecrets }}
+      imagePullSecrets:
+        {{ include "goalie.imagePullSecrets" . | nindent 8 }}
+      {{ end }}
+      containers:
+        - name: helm-test
+          image: {{ include "goalie.image" . | quote }}
+          imagePullPolicy: {{ include "goalie.imagePullPolicy" . }}
+          command:
+            - /usr/local/bin/bun
+            - --no-env-file
+            - -e
+          args:
+            - |
+              const base = `http://${process.env.SERVICE_HOST}:4310`;
+              const expect = async (path, status, init) => {
+                const response = await fetch(`${base}${path}`, init);
+                if (response.status !== status) throw new Error(`${path}: expected ${status}, got ${response.status}`);
+                return response;
+              };
+              await expect("/livez", 200);
+              await expect("/health", 200);
+              await expect("/api/work", 401);
+              const root = await fetch(`${base}/`, { redirect: "manual" });
+              if (![301, 302, 303, 307, 308].includes(root.status)) throw new Error(`/: expected auth redirect, got ${root.status}`);
+              const location = root.headers.get("location") || "";
+              if (!location.startsWith("/auth/login")) throw new Error(`/: unexpected redirect ${location}`);
+          env:
+            - name: SERVICE_HOST
+              value: {{ include "goalie.fullname" . | quote }}
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}

@@ -1,0 +1,130 @@
+# Production uses an immutable digest. For an image preloaded into a local cluster,
+# set tag and pullPolicy: Never and leave digest empty.
+image:
+  repository: ""
+  digest: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount: 1
+revisionHistoryLimit: 3
+
+# The application owns no service account permissions and must not receive a token.
+serviceAccount:
+  name: default
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+terminationGracePeriodSeconds: 30
+
+app:
+  url: ""
+  maxRequestBodyBytes: 2000000
+  bootstrapEmail: ""
+
+oidc:
+  issuer: ""
+  clientId: ""
+  clientSecretRef:
+    name: ""
+    key: ""
+
+database:
+  urlSecretRef:
+    name: ""
+    key: ""
+  # Optional CA bundle for PostgreSQL verify-full.
+  caSecretRef: {}
+  poolMax: 10
+
+trust:
+  # Optional CA bundle for OIDC/provider TLS.
+  caSecretRef: {}
+
+service:
+  type: ClusterIP
+  port: 4310
+  targetPort: http
+  annotations: {}
+
+probes:
+  startup:
+    path: /livez
+    periodSeconds: 2
+    timeoutSeconds: 2
+    failureThreshold: 60
+  liveness:
+    path: /livez
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    path: /health
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+migration:
+  enabled: true
+  # Optional distinct migration-owner credentials. If omitted, database.urlSecretRef is used.
+  urlSecretRef: {}
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+
+# Assistance is disabled unless all fields required by the enabled branch are supplied.
+openjev:
+  enabled: false
+  baseUrl: ""
+  trustedOrigin: ""
+  model: openjev-latest
+  timeoutMs: 30000
+  apiKeySecretRef: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""
+  tlsSecretName: ""
+  path: /
+  pathType: Prefix
+
+pdb:
+  enabled: false
+  minAvailable: 1
+
+# Rules are passed through as supplied when enabled. Empty rules intentionally deny all.
+networkPolicy:
+  enabled: false
+  ingress: []
+  egress: []

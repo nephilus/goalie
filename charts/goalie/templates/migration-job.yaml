@@ -1,0 +1,105 @@
+{{- include "goalie.validate" . -}}
+{{- $migration := default (dict) .Values.migration -}}
+{{- if get $migration "enabled" -}}
+{{- $database := default (dict) .Values.database -}}
+{{- $trust := default (dict) .Values.trust -}}
+{{- $databaseRef := get $database "urlSecretRef" -}}
+{{- $migrationRef := get $migration "urlSecretRef" -}}
+{{- $urlRef := $databaseRef -}}
+{{- if $migrationRef }}{{ $urlRef = $migrationRef }}{{ end -}}
+{{- $databaseCaRef := get $database "caSecretRef" -}}
+{{- $trustCaRef := get $trust "caSecretRef" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "goalie.fullname" . }}-migration
+  labels:
+    {{- include "goalie.hookLabels" (dict "context" . "component" "migration") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migration.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.migration.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "goalie.hookSelectorLabels" (dict "context" . "component" "migration") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | quote }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        seccompProfile:
+          type: RuntimeDefault
+      {{ $pullSecrets := default (list) .Values.imagePullSecrets }}
+      {{ if $pullSecrets }}
+      imagePullSecrets:
+        {{ include "goalie.imagePullSecrets" . | nindent 8 }}
+      {{ end }}
+      containers:
+        - name: migration
+          image: {{ include "goalie.image" . | quote }}
+          imagePullPolicy: {{ include "goalie.imagePullPolicy" . }}
+          command:
+            - /usr/local/bin/bun
+            - --no-env-file
+            - build/migrate.mjs
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ get $urlRef "name" | quote }}
+                  key: {{ get $urlRef "key" | quote }}
+            - name: DB_POOL_MAX
+              value: {{ default 10 (get $database "poolMax") | quote }}
+            {{ if $databaseCaRef }}
+            - name: DB_CA_FILE
+              value: /etc/goalie/db-ca/ca.crt
+            {{ end }}
+            {{ if $trustCaRef }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/goalie/trust-ca/ca.crt
+            {{ end }}
+          {{ if or $databaseCaRef $trustCaRef }}
+          volumeMounts:
+            {{ if $databaseCaRef }}
+            - name: db-ca
+              mountPath: /etc/goalie/db-ca
+              readOnly: true
+            {{ end }}
+            {{ if $trustCaRef }}
+            - name: trust-ca
+              mountPath: /etc/goalie/trust-ca
+              readOnly: true
+            {{ end }}
+          {{ end }}
+      {{ if or $databaseCaRef $trustCaRef }}
+      volumes:
+        {{ if $databaseCaRef }}
+        - name: db-ca
+          secret:
+            secretName: {{ get $databaseCaRef "name" | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ get $databaseCaRef "key" | quote }}
+                path: ca.crt
+        {{ end }}
+        {{ if $trustCaRef }}
+        - name: trust-ca
+          secret:
+            secretName: {{ get $trustCaRef "name" | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ get $trustCaRef "key" | quote }}
+                path: ca.crt
+        {{ end }}
+      {{ end }}
+{{- end }}

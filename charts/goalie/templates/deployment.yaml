@@ -1,0 +1,227 @@
+{{- include "goalie.validate" . -}}
+{{- $app := default (dict) .Values.app -}}
+{{- $oidc := default (dict) .Values.oidc -}}
+{{- $database := default (dict) .Values.database -}}
+{{- $trust := default (dict) .Values.trust -}}
+{{- $openjev := default (dict) .Values.openjev -}}
+{{- $oidcSecretRef := get $oidc "clientSecretRef" -}}
+{{- $databaseRef := get $database "urlSecretRef" -}}
+{{- $databaseCaRef := get $database "caSecretRef" -}}
+{{- $trustCaRef := get $trust "caSecretRef" -}}
+{{- $aiEnabled := default false (get $openjev "enabled") -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "goalie.fullname" . }}
+  labels:
+    {{- include "goalie.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "goalie.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "goalie.selectorLabels" . | nindent 8 }}
+      {{ with .Values.podAnnotations }}
+      annotations:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name | quote }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        seccompProfile:
+          type: RuntimeDefault
+      {{ $pullSecrets := default (list) .Values.imagePullSecrets }}
+      {{ if $pullSecrets }}
+      imagePullSecrets:
+        {{ include "goalie.imagePullSecrets" . | nindent 8 }}
+      {{ end }}
+      {{ with .Values.nodeSelector }}
+      nodeSelector:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
+      {{ with .Values.affinity }}
+      affinity:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
+      {{ with .Values.tolerations }}
+      tolerations:
+        {{ toYaml . | nindent 8 }}
+      {{ end }}
+      {{ if $aiEnabled }}
+      initContainers:
+        - name: openjev-key
+          image: {{ include "goalie.image" . | quote }}
+          imagePullPolicy: {{ include "goalie.imagePullPolicy" . }}
+          command:
+            - /usr/local/bin/bun
+            - --no-env-file
+            - -e
+            - |
+              import { chmod, readFile, writeFile } from "node:fs/promises";
+              const source = process.env.OPENJEV_SOURCE;
+              const destination = process.env.OPENJEV_DEST;
+              if (!source || !destination) throw new Error("OpenJev key paths are required");
+              const key = await readFile(source, "utf8");
+              if (!key.trim()) throw new Error("OpenJev API key is empty");
+              await writeFile(destination, key, { mode: 0o600 });
+              await chmod(destination, 0o600);
+          env:
+            - name: OPENJEV_SOURCE
+              value: /var/run/goalie/openjev-source/api-key
+            - name: OPENJEV_DEST
+              value: /run/goalie/openjev/api-key
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: openjev-source
+              mountPath: /var/run/goalie/openjev-source
+              readOnly: true
+            - name: openjev-key
+              mountPath: /run/goalie/openjev
+      {{ end }}
+      containers:
+        - name: goalie
+          image: {{ include "goalie.image" . | quote }}
+          imagePullPolicy: {{ include "goalie.imagePullPolicy" . }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 4310
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "4310"
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+            - name: APP_URL
+              value: {{ get $app "url" | quote }}
+            - name: MAX_REQUEST_BODY_BYTES
+              value: {{ default 2000000 (get $app "maxRequestBodyBytes") | quote }}
+            - name: AUTH_BOOTSTRAP_EMAIL
+              value: {{ default "" (get $app "bootstrapEmail") | quote }}
+            - name: OIDC_ISSUER
+              value: {{ get $oidc "issuer" | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ get $oidc "clientId" | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ get $oidcSecretRef "name" | quote }}
+                  key: {{ get $oidcSecretRef "key" | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ get $databaseRef "name" | quote }}
+                  key: {{ get $databaseRef "key" | quote }}
+            - name: DB_POOL_MAX
+              value: {{ default 10 (get $database "poolMax") | quote }}
+            - name: OPENJEV_ENABLED
+              value: {{ if $aiEnabled }}"true"{{ else }}"false"{{ end }}
+          {{ if $databaseCaRef }}
+            - name: DB_CA_FILE
+              value: /etc/goalie/db-ca/ca.crt
+          {{ end }}
+          {{ if $trustCaRef }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /etc/goalie/trust-ca/ca.crt
+          {{ end }}
+          {{ if $aiEnabled }}
+            - name: OPENJEV_BASE_URL
+              value: {{ get $openjev "baseUrl" | quote }}
+            - name: OPENJEV_TRUSTED_ORIGIN
+              value: {{ get $openjev "trustedOrigin" | quote }}
+            - name: OPENJEV_MODEL
+              value: {{ default "openjev-latest" (get $openjev "model") | quote }}
+            - name: OPENJEV_TIMEOUT_MS
+              value: {{ default 30000 (get $openjev "timeoutMs") | quote }}
+            - name: OPENJEV_API_KEY_FILE
+              value: /run/goalie/openjev/api-key
+          {{ end }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.probes.startup.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.liveness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readiness.path }}
+              port: http
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{ if $databaseCaRef }}
+            - name: db-ca
+              mountPath: /etc/goalie/db-ca
+              readOnly: true
+            {{ end }}
+            {{ if $trustCaRef }}
+            - name: trust-ca
+              mountPath: /etc/goalie/trust-ca
+              readOnly: true
+            {{ end }}
+            {{ if $aiEnabled }}
+            - name: openjev-key
+              mountPath: /run/goalie/openjev
+              readOnly: true
+            {{ end }}
+      volumes:
+        {{ if $databaseCaRef }}
+        - name: db-ca
+          secret:
+            secretName: {{ get $databaseCaRef "name" | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ get $databaseCaRef "key" | quote }}
+                path: ca.crt
+        {{ end }}
+        {{ if $trustCaRef }}
+        - name: trust-ca
+          secret:
+            secretName: {{ get $trustCaRef "name" | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ get $trustCaRef "key" | quote }}
+                path: ca.crt
+        {{ end }}
+        {{ if $aiEnabled }}
+        - name: openjev-source
+          secret:
+            secretName: {{ get (get $openjev "apiKeySecretRef") "name" | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ get (get $openjev "apiKeySecretRef") "key" | quote }}
+                path: api-key
+        - name: openjev-key
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        {{ end }}

@@ -28,13 +28,14 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
       commit: ${{ steps.validate.outputs.commit }}
     steps:
-      - name: Check out validation tooling
+      - name: Check out main-branch validation tooling
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: refs/heads/main
           persist-credentials: false
           fetch-depth: 1
 
-      - name: Validate published release and tag
+      - name: Validate published release, tag, and main ancestry
         id: validate
         shell: bash
         env:
@@ -64,6 +65,10 @@ jobs:
     with:
       ref: ${{ needs.preflight.outputs.commit }}
       export-image: true
+      validated-release: true
+    secrets:
+      DHI_USERNAME: ${{ secrets.DHI_USERNAME }}
+      DHI_TOKEN: ${{ secrets.DHI_TOKEN }}
 
   publish:
     needs:
@@ -109,6 +114,14 @@ jobs:
           name: goalie-image
           path: ${{ runner.temp }}/goalie-image
 
+      - name: Verify artifact checksums before loading
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/goalie-image"
+          test -f SHA256SUMS
+          sha256sum --check --strict SHA256SUMS
+
       - name: Load and verify tested image
         shell: bash
         env:
@@ -116,10 +129,29 @@ jobs:
           EXPECTED_VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
-          image_tar="$RUNNER_TEMP/goalie-image/goalie-image.tar"
-          metadata="$RUNNER_TEMP/goalie-image/metadata.json"
+          artifact="$RUNNER_TEMP/goalie-image"
+          image_tar="$artifact/goalie-image.tar"
+          metadata="$artifact/metadata.json"
+          qualification="$artifact/qualification.json"
           test -f "$image_tar"
           test -f "$metadata"
+          test -f "$qualification"
+          node --input-type=module - "$metadata" "$qualification" "$EXPECTED_REVISION" "$EXPECTED_VERSION" <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const [metadataPath, qualificationPath, expectedRevision, expectedVersion] = process.argv.slice(2);
+          const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+          const qualification = JSON.parse(await readFile(qualificationPath, "utf8"));
+          if (qualification.status !== "passed" || qualification.containerSmoke !== "passed" || qualification.kubernetes !== "passed") {
+            throw new Error("Tested image does not have complete qualification evidence");
+          }
+          if (qualification.revision !== expectedRevision || metadata.revision !== expectedRevision) {
+            throw new Error("Tested image revision evidence does not match release preflight");
+          }
+          if (metadata.version !== expectedVersion) throw new Error("Tested image version evidence does not match release preflight");
+          if (!qualification.imageId || qualification.imageId !== metadata.imageId) {
+            throw new Error("Qualification and image metadata identities differ");
+          }
+          NODE
           docker load --input "$image_tar"
           metadata_id=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).imageId)' "$metadata")
           metadata_revision=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).revision)' "$metadata")
@@ -154,6 +186,7 @@ jobs:
           node scripts/publish-image.mjs goalie:ci \
             "ghcr.io/${GITHUB_REPOSITORY,,}:$RELEASE_VERSION" \
             "$DOCKERHUB_IMAGE:$RELEASE_VERSION"
+
       - name: Log out of registries
         if: ${{ always() }}
         shell: bash

@@ -1,0 +1,31 @@
+{{- include "goalie.validate" . -}}
+{{- $ingress := default (dict) .Values.ingress -}}
+{{ if get $ingress "enabled" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "goalie.fullname" . }}
+  labels:
+    {{- include "goalie.labels" . | nindent 4 }}
+  {{ with $ingress.annotations }}
+  annotations:
+    {{ toYaml . | nindent 4 }}
+  {{ end }}
+spec:
+  ingressClassName: {{ get $ingress "className" | quote }}
+  tls:
+    - hosts:
+        - {{ get $ingress "host" | quote }}
+      secretName: {{ get $ingress "tlsSecretName" | quote }}
+  rules:
+    - host: {{ get $ingress "host" | quote }}
+      http:
+        paths:
+          - path: {{ get $ingress "path" | quote }}
+            pathType: {{ get $ingress "pathType" | quote }}
+            backend:
+              service:
+                name: {{ include "goalie.fullname" . }}
+                port:
+                  name: http
+{{ end }}

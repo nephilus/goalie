@@ -38,7 +38,7 @@ const pool = new pg.Pool({ connectionString: database.href, connectionTimeoutMil
 try {
   const inspected = JSON.parse(await run(['image', 'inspect', image]))[0];
   const user = inspected.Config.User;
-  assert(user && !['root', '0'].includes(user.split(':')[0]), 'Image must default to a nonroot user');
+  assert.equal(user, '65532:65532', 'Image must default to UID/GID 65532');
   const version = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
   assert.equal(inspected.Config.Labels?.['org.opencontainers.image.version'], version, 'Image version mismatch');
   assert.equal(inspected.Config.Labels?.['org.opencontainers.image.revision'], revision, 'Image revision mismatch');
@@ -54,7 +54,7 @@ try {
   };
   const flags = ['--network', 'host', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m', ...Object.entries(settings).flatMap(([key, value]) => ['--env', `${key}=${value}`])];
   owned.add(names.migration);
-  await run(['run', '--name', names.migration, ...flags, image, 'node', 'build/migrate.mjs']);
+  await run(['run', '--name', names.migration, ...flags, image, '/usr/local/bin/bun', '--no-env-file', 'build/migrate.mjs']);
   const directory = new URL('../migrations/', import.meta.url);
   const expected = await Promise.all((await readdir(directory)).filter(file => /^\d+_.+\.sql$/.test(file)).sort().map(async file => ({
     version: file.slice(0, file.indexOf('_')),
@@ -72,6 +72,11 @@ try {
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assert(ready, 'Container did not become ready');
+  const runtime = JSON.parse(await run(['exec', names.app, '/usr/local/bin/bun', '--no-env-file', '-e', 'const fs=require("node:fs"),path=require("node:path"); const bins=[...new Set(["/bin","/usr/bin","/usr/local/bin","/sbin",...process.env.PATH.split(":")].flatMap(dir=>["node","sh","ash","apk"].map(name=>path.join(dir,name))))]; console.log(JSON.stringify({bun:Bun.version,executable:fs.realpathSync(process.execPath),uid:process.getuid(),gid:process.getgid(),binaries:bins.filter(p=>fs.existsSync(p)).map(p=>({path:p,target:fs.realpathSync(p)}))}))']));
+  assert.equal(runtime.bun, '1.4.2', 'Actual runtime must be the qualified Bun version');
+  assert.equal(runtime.uid, 65532);
+  assert.equal(runtime.gid, 65532);
+  assert(runtime.binaries.every(binary => binary.path.endsWith('/node') && binary.target === runtime.executable), 'Runtime must not contain a shell, apk or standalone Node');
   const request = path => fetch(origin + path, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
   assert.equal((await request('/api/work')).status, 401, 'Work API must reject unauthenticated requests');
   const root = await request('/');

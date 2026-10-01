@@ -228,6 +228,10 @@ test('saved assessments enforce consent, share valid results, preserve privacy, 
     const joinedResult = joiner.then(result => result).catch(error => { throw error; });
     await fixture.waitForRequests(demotionBaseline + 1);
     await pool.query("UPDATE people SET role = 'viewer' WHERE id = 'editor'");
+    // A caller still awaiting its database read may arrive after the revoked
+    // starter finishes. Let that authorized call complete instead of holding it
+    // forever; the already-held starter still exercises the revocation check.
+    await fixture.control({ mode: 'valid' });
     await fixture.release();
     await starterRejected;
     const joined = await joinedResult;

@@ -1,0 +1,15 @@
+{{- include "goalie.validate" . -}}
+{{- $pdb := default (dict) .Values.pdb -}}
+{{ if get $pdb "enabled" }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "goalie.fullname" . }}
+  labels:
+    {{- include "goalie.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ default 1 (get $pdb "minAvailable") }}
+  selector:
+    matchLabels:
+      {{- include "goalie.selectorLabels" . | nindent 6 }}
+{{ end }}

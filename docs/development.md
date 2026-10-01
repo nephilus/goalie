@@ -6,6 +6,10 @@ Install Node.js 24.14 or newer, Bun 1.4.2, Podman, and the pinned `pg0` binary. 
 
 The [devcontainer Dockerfile](../.devcontainer/Dockerfile) contains the pinned pg0 download and checksum-verification commands. Outside the devcontainer, install that binary on your PATH and ensure Node24 is the active `node`.
 
+Application serving, builds, migrations and seeds run explicitly under Bun. Node remains for the existing test runner, typechecking, MCP and local database tooling. The Debian devcontainer retains GNU pg0; production Alpine does not include pg0. `NODE_OPTIONS` limits Node tooling, not Bun.
+
+`bunfig.toml` disables automatic dotenv loading for Bun application commands. Pass the intended instance with `--env-file` and use a clean inherited environment. Production `start` and `build` use `--no-env-file`. Normal development remains loopback HTTP/plain PostgreSQL; production TLS qualification is separate.
+
 ## Fresh isolated instance
 
 Install dependencies and create a new ignored instance. The generic ports below are defaults; choose unused loopback ports when another process already uses them.
@@ -41,16 +45,16 @@ Do not publish these loopback services or their credentials. The Dex callback ge
 Run the migration runner before serving the app. Seeding is optional and is strictly synthetic/nonproduction.
 
 ```sh
-# `node --env-file` fills only missing variables. Use `env -i` so a different
+# Explicit env files fill only missing variables. Use `env -i` so a different
 # instance's database, TLS, provider, or authentication settings cannot leak in.
 env -i PATH="$PATH" HOME="$HOME" \
-  node --env-file=.local/dev/.env --import tsx scripts/migrate.ts
+  bun --env-file=.local/dev/.env scripts/migrate.ts
 
 env -i PATH="$PATH" HOME="$HOME" \
-  node --env-file=.local/dev/.env --import tsx scripts/seed-work.ts
+  bun --env-file=.local/dev/.env scripts/seed-work.ts
 
 env -i PATH="$PATH" HOME="$HOME" \
-  node --env-file=.local/dev/.env node_modules/@react-router/dev/bin.cjs dev \
+  bun --env-file=.local/dev/.env node_modules/@react-router/dev/bin.cjs dev \
   --host 127.0.0.1 --port 4310
 ```
 
@@ -82,7 +86,7 @@ done
 
 TEST_DATABASE_URL="postgresql://goalie:goalie_ci@127.0.0.1:${TEST_DB_PORT}/goalie_ci"
 env -i PATH="$PATH" HOME="$HOME" DATABASE_URL="$TEST_DATABASE_URL" \
-  node --import tsx scripts/migrate.ts
+  bun --no-env-file scripts/migrate.ts
 
 env -i PATH="$PATH" HOME="$HOME" bun run typecheck
 env -i PATH="$PATH" HOME="$HOME" NODE_ENV=test \
@@ -105,3 +109,37 @@ env -i PATH="$PATH" HOME="$HOME" GOALIE_MCP_PERSON_ID=demo-editor \
 ```
 
 Use an existing synthetic person ID in that variable. The launcher reads the authoritative People row and rechecks roles on calls. Database access makes this a trusted local operator boundary, not delegated authentication.
+
+## Disposable Kubernetes qualification
+
+Install checksum-verified Linux amd64 tools in an ignored private directory:
+
+```sh
+node scripts/install-qualification-tools.mjs .local/qualification-bin
+export PATH="$PWD/.local/qualification-bin:$PATH"
+CONTAINER_ENGINE=podman EXPECTED_REVISION=<source-sha> \
+  node scripts/smoke-kubernetes.mjs <already-built-image>
+```
+
+Pins: kind0.31.0, Kubernetes/kubectl1.35.0, Helm4.3.0, Trivy0.74.0.
+The harness creates a uniquely named cluster and private kubeconfig, passes its
+context explicitly, and removes only owned resources. It never changes host
+kubeconfig, sysctls or security settings. Hosted CI uses Docker; local Podman uses
+kind's experimental provider. A failed prerequisite blocks acceptance rather than
+authorizing host changes. Downloads have bounded deadlines and verified upstream
+checksums; failures identify the URL.
+The app archive uses an explicit `localhost/goalie-smoke:<unique>` tag so Podman
+and Kubernetes resolve the same name. Acceptance checks both the exact loaded
+tag and immutable config digest before starting pull-policy-`Never` workloads.
+
+`tests/kubernetes/fixtures.mjs` provides disposable PostgreSQL18.1, Dex and a
+synthetic provider, with ephemeral TLS only for production-contract acceptance.
+App pods use a Restricted namespace; dependency fixtures use a separate namespace.
+Private keys and synthetic credentials are not release artifacts. This does not
+change normal plaintext loopback pg0/Dex development or qualify actual GitLab/EDB.
+
+The harness consumes the built image without rebuild/push, packages the local
+dependency-free chart, and checks migrations, upgrade/persistence, failure gating,
+readiness/liveness transitions, restart/termination, TLS rejection and key projection.
+Optional Ingress/PDB/NetworkPolicy are server-dry-run checks, not controller/CNI
+qualification. Diagnostic output is bounded/redacted; a failed gate is not a pass.

@@ -7,24 +7,123 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 6 * * 1"
   workflow_call:
     inputs:
       ref:
-        description: "Commit, tag, or ref to check out; empty uses the event ref"
+        description: "Validated 40-character commit SHA to check out"
         required: false
         type: string
         default: ""
       export-image:
-        description: "Save the tested image as the goalie-image artifact"
+        description: "Save the qualified image bundle as the goalie-image artifact"
         required: false
         type: boolean
         default: false
+      validated-release:
+        description: "The caller completed release preflight; CI still verifies ancestry"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DHI_USERNAME:
+        required: false
+      DHI_TOKEN:
+        required: false
 
 permissions:
   contents: read
 
 jobs:
+  trusted-gate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      qualify: ${{ steps.gate.outputs.qualify }}
+      revision: ${{ steps.gate.outputs.revision }}
+    steps:
+      - name: Verify trusted event and main ancestry
+        id: gate
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          INPUT_REF: ${{ inputs.ref }}
+          VALIDATED_RELEASE: ${{ inputs['validated-release'] }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFile } from "node:fs/promises";
+
+          const output = process.env.GITHUB_OUTPUT;
+          const emit = async values => {
+            await appendFile(output, Object.entries(values).map(([key, value]) => `${key}=${value}\n`).join(""));
+          };
+          const apiBase = new URL(process.env.GITHUB_API_URL || "https://api.github.com/");
+          if (!apiBase.pathname.endsWith("/")) apiBase.pathname += "/";
+          const repository = process.env.GITHUB_REPOSITORY;
+          const token = process.env.GITHUB_TOKEN;
+          const request = async path => {
+            const response = await fetch(new URL(`repos/${repository}/${path}`, apiBase), {
+              headers: {
+                accept: "application/vnd.github+json",
+                authorization: `Bearer ${token}`,
+                "x-github-api-version": "2022-11-28",
+              },
+            });
+            if (!response.ok) throw new Error(`GitHub API request failed (${response.status}) for ${path}`);
+            return response.json();
+          };
+
+          if (process.env.EVENT_NAME === "pull_request") {
+            await emit({ qualify: "false", revision: "" });
+            process.exit(0);
+          }
+
+          const event = process.env.EVENT_NAME;
+          let revision;
+          if (process.env.VALIDATED_RELEASE === "true" || process.env.INPUT_REF) {
+            if (process.env.VALIDATED_RELEASE !== "true") {
+              throw new Error("A supplied workflow-call ref requires release-preflight validation");
+            }
+            revision = process.env.INPUT_REF;
+            if (!/^[0-9a-f]{40}$/i.test(revision || "")) {
+              throw new Error("Validated workflow-call ref must be an exact 40-character commit SHA");
+            }
+          } else if (event === "push") {
+            if (process.env.GITHUB_REF !== "refs/heads/main") {
+              throw new Error("Trusted image qualification is only allowed for a push to main");
+            }
+            revision = process.env.GITHUB_SHA;
+          } else if (event === "schedule") {
+            revision = (await request("branches/main")).commit?.sha;
+          } else {
+            throw new Error(`Unsupported trusted event: ${event}`);
+          }
+
+          if (!/^[0-9a-f]{40}$/i.test(revision || "")) {
+            throw new Error("Trusted revision did not resolve to a commit SHA");
+          }
+          const mainSha = (await request("branches/main")).commit?.sha;
+          if (!/^[0-9a-f]{40}$/i.test(mainSha || "")) {
+            throw new Error("main did not resolve to a commit SHA");
+          }
+          const comparison = await request(`compare/${revision}...${mainSha}`);
+          if (!["ahead", "identical"].includes(comparison.status)) {
+            throw new Error(`Trusted revision is not reachable from main (compare status: ${comparison.status})`);
+          }
+          await emit({ qualify: "true", revision });
+          NODE
+
   test-build-smoke:
+    needs: trusted-gate
+    if: ${{ github.event_name == 'pull_request' || needs.trusted-gate.outputs.qualify == 'true' }}
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -50,9 +149,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ github.event_name == 'pull_request' && github.sha || needs.trusted-gate.outputs.revision }}
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -66,6 +165,14 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install pinned Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/goalie-qualification-tools"
+          node scripts/install-qualification-tools.mjs "$tools" helm
+          echo "$tools" >> "$GITHUB_PATH"
 
       - name: Typecheck
         run: bun run typecheck
@@ -95,47 +202,207 @@ jobs:
       - name: Build application
         run: bun run build
 
-      - name: Build native amd64 image
+      - name: Validate Helm chart
+        env:
+          HELM: ${{ runner.temp }}/goalie-qualification-tools/helm
+        run: node scripts/check-chart.mjs charts/goalie
+
+  trusted-image:
+    needs:
+      - trusted-gate
+      - test-build-smoke
+    if: ${{ needs.trusted-gate.outputs.qualify == 'true' && needs.test-build-smoke.result == 'success' }}
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18.1
+        env:
+          POSTGRES_DB: goalie_ci
+          POSTGRES_USER: goalie
+          POSTGRES_PASSWORD: goalie_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U goalie -d goalie_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://goalie:goalie_ci@127.0.0.1:5432/goalie_ci
+      WORK_TEST_DATABASE_URL: postgresql://goalie:goalie_ci@127.0.0.1:5432/goalie_ci
+      AI_ENABLED: "false"
+      OPENJEV_ENABLED: "false"
+      CONTAINER_ENGINE: docker
+    steps:
+      - name: Select isolated registry authentication storage
+        shell: bash
+        run: echo "DOCKER_CONFIG=$RUNNER_TEMP/goalie-docker-config" >> "$GITHUB_ENV"
+
+      - name: Check out qualified source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.trusted-gate.outputs.revision }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install pinned qualification tools
         shell: bash
         run: |
           set -euo pipefail
-          checked_out_sha=$(git rev-parse HEAD)
+          tools="$RUNNER_TEMP/goalie-qualification-tools"
+          node scripts/install-qualification-tools.mjs "$tools" helm kind kubectl trivy
+          echo "$tools" >> "$GITHUB_PATH"
+
+      - name: Require DHI credentials
+        shell: bash
+        env:
+          DHI_USERNAME: ${{ secrets.DHI_USERNAME }}
+          DHI_TOKEN: ${{ secrets.DHI_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$DHI_USERNAME" || { echo "::error::DHI_USERNAME is required for trusted image qualification." >&2; exit 1; }
+          test -n "$DHI_TOKEN" || { echo "::error::DHI_TOKEN is required for trusted image qualification." >&2; exit 1; }
+
+      - name: Log in to Docker Hardened Images
+        shell: bash
+        env:
+          DHI_USERNAME: ${{ secrets.DHI_USERNAME }}
+          DHI_TOKEN: ${{ secrets.DHI_TOKEN }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$DOCKER_CONFIG"
+          printf '%s' "$DHI_TOKEN" | docker login dhi.io --username "$DHI_USERNAME" --password-stdin
+
+      - name: Build one qualified image
+        id: image
+        shell: bash
+        env:
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+        run: |
+          set -euo pipefail
           package_version=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("package.json", "utf8")).version)')
-          docker build --platform linux/amd64 \
+          docker build --pull --platform linux/amd64 \
             --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
-            --label "org.opencontainers.image.revision=$checked_out_sha" \
+            --label "org.opencontainers.image.revision=$EXPECTED_REVISION" \
             --label "org.opencontainers.image.version=$package_version" \
             --label "org.opencontainers.image.licenses=MIT" \
             --label "org.opencontainers.image.description=Goalie work planning application" \
             --tag goalie:ci .
+          image_id=$(docker image inspect goalie:ci --format '{{.Id}}')
           {
-            echo "checked_out_sha=$checked_out_sha"
+            echo "checked_out_sha=$EXPECTED_REVISION"
             echo "package_version=$package_version"
+            echo "image_id=$image_id"
           } >> "$GITHUB_OUTPUT"
-        id: image
 
-      - name: Smoke-test tested image
-        env:
-          EXPECTED_REVISION: ${{ steps.image.outputs.checked_out_sha }}
-        run: node scripts/smoke-image.mjs goalie:ci
-
-      - name: Save tested image artifact
-        if: ${{ inputs['export-image'] }}
+      - name: Scan immutable image
+        id: scan
+        continue-on-error: true
         shell: bash
         env:
-          EXPECTED_REVISION: ${{ steps.image.outputs.checked_out_sha }}
-          PACKAGE_VERSION: ${{ steps.image.outputs.package_version }}
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+          REPORT_DIRECTORY: ${{ runner.temp }}/goalie-image-report
+          TRIVY_BIN: ${{ runner.temp }}/goalie-qualification-tools/trivy
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/goalie-image"
-          docker save goalie:ci -o "$RUNNER_TEMP/goalie-image/goalie-image.tar"
-          image_id=$(docker image inspect goalie:ci --format '{{.Id}}')
-          cat > "$RUNNER_TEMP/goalie-image/metadata.json" <<EOF
-          {"imageId":"$image_id","revision":"$EXPECTED_REVISION","version":"$PACKAGE_VERSION"}
-          EOF
+          rm -rf "$REPORT_DIRECTORY"
+          node scripts/scan-image.mjs goalie:ci "$REPORT_DIRECTORY"
+
+      - name: Require passed image policy
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+          REPORT_DIRECTORY: ${{ runner.temp }}/goalie-image-report
+        run: |
+          set -euo pipefail
+          test -f "$REPORT_DIRECTORY/summary.json"
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const summary = JSON.parse(await readFile(`${process.env.REPORT_DIRECTORY}/summary.json`, "utf8"));
+          if (summary.status !== "passed") throw new Error(`Image scan status is ${summary.status || "missing"}`);
+          if (!summary.identity?.imageId || summary.identity.expectedRevision !== process.env.EXPECTED_REVISION) {
+            throw new Error("Image scan identity is incomplete or has the wrong revision");
+          }
+          NODE
+
+      - name: Container smoke test
+        id: container-smoke
+        env:
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+        run: node scripts/smoke-image.mjs goalie:ci
+
+      - name: Kubernetes and Helm acceptance
+        id: kubernetes
+        env:
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+          KUBERNETES_REPORT_DIRECTORY: ${{ runner.temp }}/goalie-image-report
+        run: node scripts/smoke-kubernetes.mjs goalie:ci
+
+      - name: Write qualification evidence
+        id: qualification
+        if: ${{ steps.scan.outcome == 'success' && steps.container-smoke.outcome == 'success' && steps.kubernetes.outcome == 'success' }}
+        shell: bash
+        env:
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+          REPORT_DIRECTORY: ${{ runner.temp }}/goalie-image-report
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { execFile } from "node:child_process";
+          import { readFile, writeFile } from "node:fs/promises";
+          import { promisify } from "node:util";
+          const exec = promisify(execFile);
+          const directory = process.env.REPORT_DIRECTORY;
+          const identity = JSON.parse(await readFile(`${directory}/image-identity.json`, "utf8"));
+          const kubernetes = JSON.parse(await readFile(`${directory}/kubernetes.json`, "utf8"));
+          const inspected = JSON.parse((await exec("docker", ["image", "inspect", "goalie:ci"])).stdout)[0];
+          const imageId = inspected.Id.startsWith("sha256:") ? inspected.Id : `sha256:${inspected.Id}`;
+          if (imageId !== identity.imageId) throw new Error("Image tag changed after scan");
+          if (kubernetes.status !== "passed" || kubernetes.imageId !== identity.imageId || kubernetes.revision !== process.env.EXPECTED_REVISION) {
+            throw new Error("Kubernetes evidence does not match the scanned image identity");
+          }
+          await writeFile(`${directory}/qualification.json`, `${JSON.stringify({
+            status: "passed",
+            imageId: identity.imageId,
+            revision: process.env.EXPECTED_REVISION,
+            containerSmoke: "passed",
+            kubernetes: "passed",
+            qualifiedAt: new Date().toISOString(),
+          })}\n`, { mode: 0o600 });
+          NODE
+
+      - name: Package tested image and chart
+        id: package
+        if: ${{ inputs['export-image'] && steps.qualification.outcome == 'success' }}
+        shell: bash
+        env:
+          CONTAINER_ENGINE: docker
+          EXPECTED_REVISION: ${{ needs.trusted-gate.outputs.revision }}
+          REPORT_DIRECTORY: ${{ runner.temp }}/goalie-image-report
+          OUTPUT_DIRECTORY: ${{ runner.temp }}/goalie-image
+        run: |
+          set -euo pipefail
+          rm -rf "$OUTPUT_DIRECTORY"
+          mkdir -p "$OUTPUT_DIRECTORY"
+          node scripts/package-image.mjs goalie:ci "$REPORT_DIRECTORY" "$OUTPUT_DIRECTORY"
 
       - name: Upload tested image artifact
-        if: ${{ inputs['export-image'] }}
+        if: ${{ inputs['export-image'] && steps.package.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: goalie-image
@@ -143,3 +410,77 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+      - name: Upload complete image qualification reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: goalie-image-scan-${{ github.run_id }}
+          path: ${{ runner.temp }}/goalie-image-report
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+      - name: Remove DHI credentials
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          docker logout dhi.io >/dev/null 2>&1 || true
+          rm -rf "$DOCKER_CONFIG"
+
+  weekly-release-rescan:
+    needs: trusted-gate
+    if: ${{ github.event_name == 'schedule' && needs.trusted-gate.outputs.qualify == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out qualified main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.trusted-gate.outputs.revision }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.0
+
+      - name: Install pinned Trivy
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/goalie-qualification-tools"
+          node scripts/install-qualification-tools.mjs "$tools" trivy
+          echo "$tools" >> "$GITHUB_PATH"
+
+      - name: Rescan latest published stable image
+        id: rescan
+        continue-on-error: true
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CONTAINER_ENGINE: docker
+        run: |
+          set -euo pipefail
+          report_directory="$RUNNER_TEMP/goalie-release-rescan"
+          rm -rf "$report_directory"
+          node scripts/rescan-release.mjs "$report_directory"
+
+      - name: Upload weekly release rescan
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: goalie-release-rescan-${{ github.run_id }}
+          path: ${{ runner.temp }}/goalie-release-rescan
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 0
+
+      - name: Fail on release rescan errors
+        if: ${{ steps.rescan.outcome != 'success' }}
+        run: exit 1

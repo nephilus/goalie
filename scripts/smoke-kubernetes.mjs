@@ -409,8 +409,28 @@ async function authenticatedWorkRequest(command) {
   assert.equal(response.status, 200, `Application service work command failed (${response.status}): ${JSON.stringify(body)}`);
   return body;
 }
+async function productionDocumentCspCheck() {
+  // A browser user agent exercises shell streaming rather than the bot all-ready path.
+  const response = await appRequest('/', { redirect: 'manual', headers: { Cookie: syntheticAuth.cookie, Origin: syntheticAuth.origin, 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' } });
+  assert.equal(response.status, 200, 'Authenticated production document did not load');
+  const policy = response.headers.get('content-security-policy') || '';
+  const scriptPolicy = policy.match(/(?:^|;)\s*script-src\s+([^;]+)/)?.[1] || '';
+  assert(scriptPolicy.includes("'strict-dynamic'") && !scriptPolicy.includes("'unsafe-inline'"), 'Production document weakened script CSP');
+  const nonce = scriptPolicy.match(/'nonce-([^']+)'/)?.[1];
+  assert(nonce, 'Production document has no request CSP nonce');
+  const html = await response.text();
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)];
+  assert(scripts.length > 0, 'Production document has no client bootstrap scripts');
+  for (const [, attributes] of scripts) {
+    const type = attributes.match(/\btype=["']([^"']+)["']/i)?.[1];
+    if (type && type !== 'module' && type !== 'text/javascript' && type !== 'application/javascript') continue;
+    assert.equal(attributes.match(/\bnonce=["']([^"']+)["']/i)?.[1], nonce, 'Production streaming/bootstrap script lacks the request CSP nonce');
+  }
+}
+
 async function seedSyntheticWork(fixture, fixtureModule) {
   await establishSyntheticSession(fixture);
+  await productionDocumentCspCheck();
   const revision = Number((await databaseQuery(fixture, 'SELECT revision FROM simple_workspace WHERE id=1')).stdout.trim());
   assert.equal(typeof fixtureModule.insertSyntheticWork, 'function', 'Kubernetes fixture must export insertSyntheticWork');
   return fixtureModule.insertSyntheticWork({ request: authenticatedWorkRequest, leadId: fixture.synthetic.personId, expectedRevision: revision });

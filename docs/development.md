@@ -99,6 +99,13 @@ env -i PATH="$PATH" HOME="$HOME" bun run build
 
 The database container is PostgreSQL 18.1 and is removed by the trap. `--env-file` only fills missing variables; `env -i` prevents inherited `DATABASE_URL`, `DB_CA_FILE`, `DB_POOL_MAX`, OIDC, AI, and OpenJev settings from changing this run. Never point tests at a live workspace.
 
+Assessment concurrency coverage holds a real empty PostgreSQL cache-read result
+until another caller has saved the same input key and released its provider
+entry. The new shared flight must recheck the persisted record before calling
+the provider; an outer cache lookup alone has a stale-read race. Every caller
+still runs transactional permission, consent, scope, model and source checks
+before using the saved result.
+
 ## MCP development
 
 The stdio launcher has no network listener and requires both the instance environment and an explicit principal:
@@ -150,5 +157,10 @@ change normal plaintext loopback pg0/Dex development or qualify actual GitLab/ED
 The harness consumes the built image without rebuild/push, packages the local
 dependency-free chart, and checks migrations, upgrade/persistence, failure gating,
 readiness/liveness transitions, restart/termination, TLS rejection and key projection.
+Its authenticated production-document check uses a browser user agent to exercise
+shell streaming and requires the request CSP nonce on every executable bootstrap
+script. Keep the same root-loader nonce on both `ServerRouter` and React's server
+renderer in `app/entry.server.tsx`; nonce-tagging only `Scripts` and
+`ScrollRestoration` leaves streamed inline scripts blocked by production CSP.
 Optional Ingress/PDB/NetworkPolicy are server-dry-run checks, not controller/CNI
 qualification. Diagnostic output is bounded/redacted; a failed gate is not a pass.

@@ -211,11 +211,40 @@ test('saved assessments enforce consent, share valid results, preserve privacy, 
     await fixture.control({ mode: 'valid', labelsByItemTitle: { 'busy-one': labels, 'busy-two': labels, 'busy-three': labels, 'race-item': labels, 'demotion-item': labels, 'joiner-item': labels } });
     const coalescedBaseline = (await fixture.requests()).length;
     const coalescedKey = await keyFor('busy-one');
-    const coalesced = await Promise.all([
-      assessWorkItem(editor, { itemId: 'busy-one', inputKey: coalescedKey }),
-      assessWorkItem(editor, { itemId: 'busy-one', inputKey: coalescedKey }),
-      assessWorkItem(editor, { itemId: 'busy-one', inputKey: coalescedKey }),
-    ]);
+    let resumeCacheRead!: () => void;
+    let captureCacheRead!: () => void;
+    let rejectCacheRead!: (error: unknown) => void;
+    const cacheReadGate = new Promise<void>(resolve => { resumeCacheRead = resolve; });
+    const cacheReadCaptured = new Promise<void>((resolve, reject) => { captureCacheRead = resolve; rejectCacheRead = reject; });
+    const originalQuery = pool.query.bind(pool);
+    let heldCacheRead = false;
+    const queryGate = mock.method(pool, 'query', async (...args: Parameters<typeof pool.query>) => {
+      const result = await Reflect.apply(originalQuery, pool, args);
+      if (!heldCacheRead && args[0] === 'SELECT input_key, record FROM simple_work_assessments WHERE item_id = $1' && Array.isArray(args[1]) && args[1][0] === 'busy-one') {
+        heldCacheRead = true;
+        captureCacheRead();
+        await cacheReadGate;
+      }
+      return result;
+    });
+    let coalesced;
+    try {
+      // Keep a real empty cache-read result pending until another caller has
+      // persisted the assessment and released its provider entry.
+      const delayed = assessWorkItem(editor, { itemId: 'busy-one', inputKey: coalescedKey });
+      void delayed.catch(rejectCacheRead);
+      await cacheReadCaptured;
+      const completed = await assessWorkItem(editor, { itemId: 'busy-one', inputKey: coalescedKey });
+      resumeCacheRead();
+      coalesced = await Promise.all([
+        delayed,
+        Promise.resolve(completed),
+        assessWorkItem(editor, { itemId: 'busy-one', inputKey: coalescedKey }),
+      ]);
+    } finally {
+      resumeCacheRead();
+      queryGate.mock.restore();
+    }
     assert.equal(new Set(coalesced.map(result => result.record?.assessedAt)).size, 1, 'coalesced callers receive one saved record');
     assert.equal((await fixture.requests()).length, coalescedBaseline + 1, 'identical keys share one provider call');
 

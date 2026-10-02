@@ -28,7 +28,7 @@ type Row = Record<string, any>;
 type ProviderResult = { response: OpenJevResponse; roundtripMs: number };
 type AssessmentClock = { serverNow: string; asOf: string };
 type PreparedAssessment = { actor: Person; snapshot: Snapshot; input: AssessmentInput; inputKey: string; model: string };
-type InFlight = { promise: Promise<ProviderResult>; consumers: number };
+type InFlight = { promise: Promise<ProviderResult | null>; consumers: number };
 
 const inFlight = new Map<string, InFlight>();
 
@@ -221,11 +221,20 @@ function assertAssessmentRequestFits(model: string, payload: Omit<OpenJevRequest
   if (!serialized || new TextEncoder().encode(serialized).byteLength > MAX_REQUEST_BYTES) assessmentFailure('The assessment context is too large to send; authored work was not changed.', 422, 'assessment_context_too_large');
 }
 
-function acquireProvider(key: string, model: string, payload: Omit<OpenJevRequest, 'model'>): { entry: InFlight; release: () => void } {
+function acquireProvider(itemId: string, key: string, model: string, payload: Omit<OpenJevRequest, 'model'>): { entry: InFlight; release: () => void } {
   let entry = inFlight.get(key);
   if (!entry) {
     if (inFlight.size >= MAX_IN_FLIGHT_ASSESSMENTS) throw new WorkError('Another assessment is already running; try again shortly.', 429, 'assessment_busy');
-    entry = { promise: requestSystemOne(payload, model), consumers: 0 };
+    entry = {
+      promise: (async () => {
+        // An earlier cache miss may resume after another flight has persisted
+        // this key and been released. Recheck inside the new shared flight.
+        const cached = (await pool.query<Row>('SELECT input_key, record FROM simple_work_assessments WHERE item_id = $1', [itemId])).rows[0];
+        if (cached && parseStoredRow(cached, itemId).inputKey === key) return null;
+        return requestSystemOne(payload, model);
+      })(),
+      consumers: 0,
+    };
     inFlight.set(key, entry);
   }
   entry.consumers += 1;
@@ -312,7 +321,7 @@ export async function assessWorkItem(actor: Person, request: { itemId: string; i
   }
   const payload = assessmentPayload(prepared.input);
   assertAssessmentRequestFits(prepared.model, payload);
-  const acquired = acquireProvider(prepared.inputKey, prepared.model, payload);
+  const acquired = acquireProvider(request.itemId, prepared.inputKey, prepared.model, payload);
   try {
     const result = await acquired.entry.promise;
     await finalizeAssessment(actor, request.itemId, prepared.inputKey, prepared.model, result);

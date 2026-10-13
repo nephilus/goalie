@@ -52,3 +52,11 @@ The active MCP tools cover identity and bounded reads; create/update/delete for 
 ## Deliberate boundaries
 
 Legacy tables and historical evaluation adapters remain in the repository and migrations for compatibility. They are not silently deleted or converted into the current `simple_*` model. There is no automatic old-data migration, automatic seeding, provider polling, background worker, hosted MCP endpoint, or automatic deployment. PostgreSQL transactions, role checks, revision checks, and bounded responses are the source of truth; UI affordances never replace server authorization.
+
+## ADRs and notifications
+
+The [ADR and work-control specification](docs/adr-spec.md) defines task-owned decisions, approval identity rules, an extensible private inbox, mentions, and the agreed browser controls. The typed ADR service and [MCP operations](docs/mcp.md) implement the backend; the ADR timeline overlay, Manager registry, inbox and mention UI are still browser work. The existing `Decisions` filter refers to AI assessments, not ADR approval state.
+
+ADR writes share the workspace revision lock with ordinary work. Audit snapshots retain prior content and approval attribution. Plain-name approvals are explicitly recorded; known people approve only under their nominated current editor/admin principal. Notification read state is account-private and does not change that shared revision. Timeline mentions use existing update commands and preserve author/editor authorization. Neither ADR text nor mention IDs are added to AI assessment inputs.
+
+Future status-menu actions must preserve hierarchy validation without cascading changes. Hide completed must be a discreet checkbox that resets to checked on reload, not an active-filter chip. See the specification for defensive parent context, accessibility, and visual-review requirements.

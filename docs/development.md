@@ -117,6 +117,8 @@ env -i PATH="$PATH" HOME="$HOME" GOALIE_MCP_PERSON_ID=demo-editor \
 
 Use an existing synthetic person ID in that variable. The launcher reads the authoritative People row and rechecks roles on calls. Database access makes this a trusted local operator boundary, not delegated authentication.
 
+See the [MCP reference](mcp.md) for strict tool inputs, revision handling, ADR approval flows, and private notification operations. Run migrations `0012` and `0013` explicitly on the isolated instance before starting updated source; migrations do not run on connection. ADR tests live in `tests/adr.test.ts`, `tests/adr-service.test.ts`, `tests/adr-integration.test.ts`, and `tests/adr-upgrade.test.ts`. Database suites create unique schemas in `WORK_TEST_DATABASE_URL`, use synthetic principals, and remove those schemas after testing. Protocol coverage includes the actual stdio launcher as well as linked SDK transports; upgrade coverage replays populated pre-ADR records through the real migration runner. Run the full suite with both database variables as above to avoid skipped database coverage. Build review candidates with `GOALIE_BUILD_DIRECTORY` pointing to a fresh ignored directory, never the directory served by a running app.
+
 ## Disposable Kubernetes qualification
 
 Install checksum-verified Linux amd64 tools in an ignored private directory:

@@ -16,7 +16,7 @@ Goalie is self-hosted work tracking for teams that need a shared view across per
 
 ## Roles
 
-- **Viewer:** reads shared work and may manage private stars.
+- **Viewer:** reads shared work and ADRs and may manage private stars and their own notification read state. Cannot be nominated as an ADR approver.
 - **Editor:** creates and edits ordinary work, goals, workstreams, tags within assigned governance, and updates.
 - **Admin:** governs Common tags, manages People through the application controls, and retains administrator-only operator operations.
 - **Workstream lead:** manages tags scoped to that workstream and linked goals according to current authorization rules.
@@ -34,3 +34,9 @@ The web app uses OIDC sessions, PostgreSQL, same-origin/CSRF checks, and revisio
 ## Accessibility and inclusion
 
 The interface is keyboard-operable, responsive, theme-aware, and uses readable labels, semantic form structure, explicit errors, focus-managed dialogs, and exact-target confirmations. Unauthorized shared operations are disabled in the UI and independently rejected by the server.
+
+## ADR scope
+
+The [agreed feature specification](docs/adr-spec.md) adds seven-field task ADRs with an editable requester, one approver, audit history, and recorded versus verified approval. The backend and [MCP tools](docs/mcp.md) also support approval notifications and explicit mentions. ADRs are independent of optional AI assessments and do not require an AI provider.
+
+Browser delivery remains separate: compact timeline entries, overlay authoring, a searchable Manager registry, an in-app notification inbox, and mention controls. The same specification records non-cascading three-dot status actions and a discreet Hide completed checkbox that resets to checked on reload. Keep these interactions simple and consistent with existing UI primitives; backend availability is not a claim that these screens are built.

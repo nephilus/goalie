@@ -18,7 +18,8 @@ export const workstreamSchema = workstreamInputSchema.extend({ id });
 export const itemSchema = itemInputSchema.extend({ id, createdAt: z.string(), updatedAt: z.string(), assigneeIds: ids });
 export const tagSchema = tagInputSchema.extend({ id });
 export const updateKindSchema = z.enum(['note', 'blocker', 'blocker_resolved']);
-export const updateSchema = z.object({ id, itemId: id, authorId: id, body: z.string(), kind: updateKindSchema, assigneeIds: ids.nullable(), createdAt: z.string() });
+export const mentionedPersonIdsSchema = ids;
+export const updateSchema = z.object({ id, itemId: id, authorId: id, body: z.string(), kind: updateKindSchema, assigneeIds: ids.nullable(), mentionedPersonIds: mentionedPersonIdsSchema.optional(), createdAt: z.string() });
 export const changeSchema = z.object({ id, actorId: id, action: z.string(), entityId: id, createdAt: z.string() });
 export const snapshotSchema = z.object({ revision: z.number().int().nonnegative(), demo: z.boolean(), people: z.array(personSchema), goals: z.array(goalSchema), workstreams: z.array(workstreamSchema), items: z.array(itemSchema), tags: z.array(tagSchema), updates: z.array(updateSchema), changes: z.array(changeSchema), starredItemIds: z.array(id) });
 export const commandSchema = z.discriminatedUnion('type', [
@@ -30,8 +31,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('item.update'), id, item: itemInputSchema }).strict(),
   z.object({ type: z.literal('tag.create'), tag: tagInputSchema }).strict(),
   z.object({ type: z.literal('tag.update'), id, tag: tagInputSchema }).strict(),
-  z.object({ type: z.literal('update.add'), itemId: id, kind: updateKindSchema, body: z.string().trim().min(1).max(10000) }).strict().superRefine((command, context) => { if (command.kind === 'blocker' && command.body.length > 4000) context.addIssue({ code: 'too_big', maximum: 4000, type: 'string', inclusive: true, origin: 'string', path: ['body'], message: 'Blocker updates cannot exceed 4000 characters' }); }),
-  z.object({ type: z.literal('update.edit'), id, body: z.string().trim().min(1).max(10000) }).strict(),
+  z.object({ type: z.literal('update.add'), itemId: id, kind: updateKindSchema, body: z.string().trim().min(1).max(10000), mentionedPersonIds: mentionedPersonIdsSchema.optional() }).strict().superRefine((command, context) => { if (command.kind === 'blocker' && command.body.length > 4000) context.addIssue({ code: 'too_big', maximum: 4000, type: 'string', inclusive: true, origin: 'string', path: ['body'], message: 'Blocker updates cannot exceed 4000 characters' }); }),
+  z.object({ type: z.literal('update.edit'), id, body: z.string().trim().min(1).max(10000), mentionedPersonIds: mentionedPersonIdsSchema.optional() }).strict(),
   z.object({ type: z.literal('goal.delete'), id }).strict(),
   z.object({ type: z.literal('workstream.delete'), id }).strict(),
   z.object({ type: z.literal('item.delete'), id }).strict(),

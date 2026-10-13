@@ -109,6 +109,8 @@ MCP is a private stdio process, not an HTTP endpoint. Configure it only for a tr
 
 Keep the env file and database credentials private. The launcher re-reads the person and role from PostgreSQL; selecting an administrator is not implicit, and a client/tool annotation is not an authorization grant. A hosted MCP endpoint would need a separate OAuth/resource-authorization design and is not enabled here.
 
+The [MCP reference](mcp.md) documents ADR approval and private notification operations. An MCP verified approval is attributed to the configured nominee, not a separately authenticated browser user. Do not change the launcher principal to impersonate an approver. ADR/mention source requires migrations `0012_adrs.sql` and `0013_update_mentions.sql` before launching the updated MCP server or app. Schema changes are operator-controlled; do not run them on a live workspace as part of a connection smoke check. The browser ADR/inbox controls remain a separate delivery.
+
 ## Kubernetes chart
 
 `charts/goalie` owns only the application. Supply PostgreSQL, OIDC, referenced Secrets,

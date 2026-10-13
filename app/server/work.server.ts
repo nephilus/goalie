@@ -49,7 +49,7 @@ async function selectSnapshot(client: PoolClient, actorId: string): Promise<Snap
   const itemTags = await client.query<Row>('SELECT item_id, tag_id FROM simple_item_tags ORDER BY item_id, tag_id');
   const itemAssignees = await client.query<Row>('SELECT item_id, person_id FROM simple_item_assignees ORDER BY item_id, person_id');
   const tags = await client.query<Row>('SELECT id, name, description, workstream_id FROM simple_tags ORDER BY lower(name), id');
-  const updates = await client.query<Row>('SELECT id, item_id, author_id, body, kind, assignee_ids, created_at FROM simple_updates ORDER BY created_at, id');
+  const updates = await client.query<Row>('SELECT id, item_id, author_id, body, kind, assignee_ids, created_at, ARRAY(SELECT person_id FROM simple_update_mentions m WHERE m.update_id = u.id ORDER BY person_id) AS mentioned_person_ids FROM simple_updates u ORDER BY created_at, id');
   const changes = await client.query<Row>('SELECT id, actor_id, action, entity_id, created_at FROM simple_changes ORDER BY created_at, id');
   const starredItems = await client.query<Row>('SELECT item_id FROM simple_item_stars WHERE person_id = $1 ORDER BY item_id', [actorId]);
   const streamGoalIds = new Map<string, string[]>();
@@ -65,7 +65,7 @@ async function selectSnapshot(client: PoolClient, actorId: string): Promise<Snap
     workstreams: streams.rows.map(row => mapStream(row, streamGoalIds.get(row.id) ?? [])),
     items: items.rows.map(row => mapItem(row, itemTagIds.get(row.id) ?? [], itemAssigneeIds.get(row.id) ?? [])),
     tags: tags.rows.map(mapTag),
-    updates: updates.rows.map(row => ({ id: row.id, itemId: row.item_id, authorId: row.author_id, body: row.body, kind: row.kind, assigneeIds: row.assignee_ids, createdAt: iso(row.created_at) })),
+    updates: updates.rows.map(row => ({ id: row.id, itemId: row.item_id, authorId: row.author_id, body: row.body, kind: row.kind, assigneeIds: row.assignee_ids, mentionedPersonIds: row.mentioned_person_ids, createdAt: iso(row.created_at) })),
     changes: changes.rows.map(row => ({ id: row.id, actorId: row.actor_id, action: row.action, entityId: row.entity_id, createdAt: iso(row.created_at) })),
     starredItemIds: starredItems.rows.map(row => row.item_id),
   } satisfies Snapshot;
@@ -178,6 +178,22 @@ async function recomputeCurrentBlocker(client: PoolClient, itemId: string): Prom
   const blocker = latest ? latest.kind === 'blocker' ? latest.body : '' : fallback.blocker_baseline;
   await client.query('UPDATE simple_items SET blocker = $2, updated_at = now() WHERE id = $1', [itemId, blocker]);
 }
+
+// Called inside the shared workspace transaction. Omitted edit fields retain
+// mentions, so older clients cannot accidentally erase or resend notifications.
+async function replaceUpdateMentions(client: PoolClient, updateId: string, itemId: string, actorId: string, mentionedPersonIds: string[]): Promise<void> {
+  await assertPeople(client, mentionedPersonIds);
+  const old = await client.query<{ person_id: string }>('SELECT person_id FROM simple_update_mentions WHERE update_id = $1', [updateId]);
+  const previous = new Set(old.rows.map(row => row.person_id));
+  await client.query('DELETE FROM simple_update_mentions WHERE update_id = $1', [updateId]);
+  await client.query("UPDATE simple_notifications SET invalidated_at = now() WHERE update_id = $1 AND kind = 'mention' AND invalidated_at IS NULL AND NOT (recipient_id = ANY($2::text[]))", [updateId, mentionedPersonIds]);
+  for (const recipientId of mentionedPersonIds) {
+    await client.query('INSERT INTO simple_update_mentions(update_id, person_id) VALUES($1, $2)', [updateId, recipientId]);
+    if (recipientId === actorId || previous.has(recipientId)) continue;
+    const notificationId = id();
+    await client.query("INSERT INTO simple_notifications(id, recipient_id, actor_id, kind, item_id, update_id, dedupe_key) VALUES($1,$2,$3,'mention',$4,$5,$6)", [notificationId, recipientId, actorId, itemId, updateId, `update:${updateId}:mention:${notificationId}:${recipientId}`]);
+  }
+}
 function assertEditor(actor: Person): void {
   if (actor.role === 'viewer') throw new WorkError('Editors or administrators are required for this operation.', 403, 'forbidden');
 }
@@ -230,6 +246,10 @@ async function assertPersonDeletable(client: PoolClient, actor: Person, personId
     { label: 'work update author record(s)', query: 'SELECT count(*)::int AS count FROM simple_updates WHERE author_id = $1' },
     { label: 'work update assignee snapshot(s)', query: 'SELECT count(*)::int AS count FROM simple_updates WHERE $1 = ANY(assignee_ids)' },
     { label: 'work audit actor record(s)', query: 'SELECT count(*)::int AS count FROM simple_changes WHERE actor_id = $1' },
+    { label: 'timeline mention(s)', query: 'SELECT count(*)::int AS count FROM simple_update_mentions WHERE person_id = $1' },
+    { label: 'ADR identity reference(s)', query: "SELECT count(*)::int AS count FROM simple_adrs WHERE creator_id = $1 OR requester->>'personId' = $1 OR approver->>'personId' = $1 OR mentioned_person_ids @> ARRAY[$1]::text[]" },
+    { label: 'ADR audit reference(s)', query: 'SELECT count(*)::int AS count FROM simple_adr_history_people WHERE person_id = $1' },
+    { label: 'notification actor record(s)', query: 'SELECT count(*)::int AS count FROM simple_notifications WHERE actor_id = $1' },
     { label: 'legacy workstream owner record(s)', query: 'SELECT count(*)::int AS count FROM workstreams WHERE owner_id = $1' },
     { label: 'legacy item owner record(s)', query: 'SELECT count(*)::int AS count FROM items WHERE owner_id = $1' },
     { label: 'legacy item assignment(s)', query: 'SELECT count(*)::int AS count FROM assignments WHERE person_id = $1' },
@@ -337,6 +357,7 @@ async function applyCommand(client: PoolClient, command: Command, actor: Person)
       await assertNotReferenced(client, 'item', command.id, [
         { label: 'child item(s)', query: 'SELECT count(*)::int AS count FROM simple_items WHERE parent_id = $1' },
         { label: 'work update(s)', query: 'SELECT count(*)::int AS count FROM simple_updates WHERE item_id = $1' },
+        { label: 'architecture decision record(s)', query: 'SELECT count(*)::int AS count FROM simple_adrs WHERE item_id = $1' },
       ]);
       await client.query('DELETE FROM simple_item_assignees WHERE item_id = $1', [command.id]);
       await client.query('DELETE FROM simple_item_tags WHERE item_id = $1', [command.id]);
@@ -419,7 +440,8 @@ async function applyCommand(client: PoolClient, command: Command, actor: Person)
       if (!await oneExists(client, 'simple_items', command.itemId)) throw new WorkError('Item does not exist.', 404, 'not_found');
       if (command.kind === 'blocker') await client.query('UPDATE simple_items SET blocker = $2, updated_at = now() WHERE id = $1', [command.itemId, command.body]);
       if (command.kind === 'blocker_resolved') await client.query("UPDATE simple_items SET blocker = '', updated_at = now() WHERE id = $1", [command.itemId]);
-      await insertUpdate(client, command.itemId, actor.id, command.body, command.kind);
+      const updateId = await insertUpdate(client, command.itemId, actor.id, command.body, command.kind);
+      if (command.mentionedPersonIds !== undefined) await replaceUpdateMentions(client, updateId, command.itemId, actor.id, command.mentionedPersonIds);
       return command.itemId;
     }
     case 'update.edit': {
@@ -427,6 +449,7 @@ async function applyCommand(client: PoolClient, command: Command, actor: Person)
       if (existing.kind === 'blocker' && command.body.length > 4000) throw new WorkError('Blocker updates cannot exceed 4000 characters.', 422, 'invalid_command');
       const result = await client.query('UPDATE simple_updates SET body = $2 WHERE id = $1', [command.id, command.body]);
       if (!result.rowCount) throw new WorkError('Update does not exist.', 404, 'not_found');
+      if (command.mentionedPersonIds !== undefined) await replaceUpdateMentions(client, command.id, existing.item_id, actor.id, command.mentionedPersonIds);
       if (existing.kind === 'blocker' || existing.kind === 'blocker_resolved') await recomputeCurrentBlocker(client, existing.item_id);
       return command.id;
     }

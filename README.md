@@ -30,6 +30,8 @@ The setup command creates private, ignored instance files and does not print pas
 
 ## Architecture and operations
 
+- [ADR, approval, notification, and work-control specification](docs/adr-spec.md)
+- [MCP tools and ADR workflows](docs/mcp.md)
 - [Design and UI behavior](DESIGN.md)
 - [Product brief](PRODUCT.md)
 - [Development setup](docs/development.md)
@@ -52,3 +54,9 @@ TypeScript, React, React Router, Node.js, PostgreSQL, Tailwind CSS, and shadcn/R
 Goalie is work tracking, not an autonomous coordination system, portfolio suite, issue tracker replacement, or hosted public service. Suggestions are optional assistance, not authorization or persistence. Web writes require an authenticated OIDC session plus origin/CSRF checks. Shared writes are authorized and revision-checked inside transactions. A local MCP process has database access and must be treated as a trusted operator boundary; do not give its credentials to untrusted clients.
 
 No public hosted instance, registry image, release, or production security certification is claimed by this repository preparation. Source publication and image publication require the owner setup and approvals in [docs/releases.md](docs/releases.md).
+
+## ADR backend and MCP
+
+The ADR backend supports structured task decisions, requester/approver identities, recorded and principal-verified approvals, retained audit history, registry search, and private approval/mention notifications. MCP exposes these operations; timeline-update commands also accept explicit mention recipients. Run migrations explicitly against the intended instance before using the new source. See the [MCP reference](docs/mcp.md).
+
+The browser ADR overlay, Manager registry, notification inbox, mention picker, status-menu additions, and Hide completed checkbox are specified but not implemented by this backend change. The [feature specification](docs/adr-spec.md) separates those UI requirements from callable backend behavior. No live deployment or migration is implied.

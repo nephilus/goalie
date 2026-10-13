@@ -4,11 +4,17 @@ import { z } from 'zod';
 import { pool } from '../server/db.server';
 import { AssistError, suggestWorkFields, suggestWorkstreamGoals } from '../server/work-assist.server';
 import { WorkError, executeWork, readWork } from '../server/work.server';
+import { executeAdr, listAdrs, readAdr, readAdrHistory, listNotifications, setNotificationRead } from '../server/adr.server';
+import {
+  adrCreateInputSchema, adrUpdateInputSchema, adrSchema, adrListQuerySchema,
+  adrHistoryQuerySchema, adrHistoryEntrySchema, notificationListQuerySchema, workNotificationSchema,
+} from '../shared/adr';
 import { assistRequestSchema, assistResultSchema, workstreamAssistRequestSchema, type AssistRequest } from '../shared/work-assist';
 import {
   commandRequestSchema,
   goalInputSchema,
   itemInputSchema,
+  mentionedPersonIdsSchema,
   personInputSchema,
   personSchema,
   tagInputSchema,
@@ -230,6 +236,72 @@ function writeAnnotations(replacesRecord = false, nonIdempotent = false) {
 export function createWorkMcpServer(personId = principalIdFromEnv()): McpServer {
   const server = new McpServer({ name: 'goalie-work', version: '1.0.0' });
 
+  const adrOutputSchema = z.object({ revision: expectedRevision, adr: adrSchema }).strict();
+  const nextCursor = z.string().max(20).nullable();
+  const adrPageOutputSchema = z.object({ revision: expectedRevision, items: z.array(adrSchema).max(100), nextCursor }).strict();
+  const historyOutputSchema = z.object({ revision: expectedRevision, items: z.array(adrHistoryEntrySchema).max(100), nextCursor }).strict();
+  const notificationPageOutputSchema = z.object({ revision: expectedRevision, items: z.array(workNotificationSchema).max(100), nextCursor }).strict();
+  const adrTransitionInputSchema = z.object({ expectedRevision, id: identifier }).strict();
+  const adrCommentInputSchema = adrTransitionInputSchema.extend({ comment: z.string().trim().min(1).max(10000) }).strict();
+
+  // The shared service reads each page and workspace revision in one snapshot.
+  server.registerTool('list_adrs', {
+    title: 'List architecture decisions',
+    description: 'Search ADR content and filter by linked work, status, requester or approver identity. Bounded cursor pagination. revision is the workspace write precondition, not an individual ADR revision.',
+    inputSchema: adrListQuerySchema, outputSchema: adrPageOutputSchema, annotations: readOnlyAnnotations(),
+  }, async input => withErrors(async () => listAdrs(input, await loadMcpPrincipal(personId))));
+
+  server.registerTool('get_adr', {
+    title: 'Get architecture decision', description: 'Read an ADR, its identities and current approval attribution. Use the top-level workspace revision for writes, not adr.revision. Read immutable history separately.',
+    inputSchema: z.object({ id: identifier }).strict(), outputSchema: adrOutputSchema, annotations: readOnlyAnnotations(),
+  }, async ({ id }) => withErrors(async () => readAdr(id, await loadMcpPrincipal(personId))));
+
+  server.registerTool('list_adr_history', {
+    title: 'List decision history', description: 'Read bounded immutable ADR history with attributed actors and full decision snapshots. History cannot be edited through MCP.',
+    inputSchema: adrHistoryQuerySchema, outputSchema: historyOutputSchema, annotations: readOnlyAnnotations(),
+  }, async input => withErrors(async () => readAdrHistory(input, await loadMcpPrincipal(personId))));
+
+  server.registerTool('create_adr', {
+    title: 'Create architecture decision', description: 'Create a draft ADR linked to work using the shared revision-checked service. Requester defaults to the configured actor. Person identities reference real accounts; plain names never claim authenticated approval. Viewers cannot write or be nominated as approvers.',
+    inputSchema: z.object({ expectedRevision, adr: adrCreateInputSchema }).strict(), outputSchema: adrOutputSchema, annotations: writeAnnotations(),
+  }, async ({ expectedRevision, adr }) => withErrors(async () => executeAdr({ expectedRevision, command: { type: 'adr.create', adr } }, await loadMcpPrincipal(personId))));
+
+  server.registerTool('update_adr', {
+    title: 'Update architecture decision', description: 'Replace all editable ADR content and identities. Read first and send every field. Changing decision content or identities invalidates prior approval and requires resubmission. Mention-only edits preserve approval. History and actor attribution are immutable.',
+    inputSchema: z.object({ expectedRevision, id: identifier, adr: adrUpdateInputSchema }).strict(), outputSchema: adrOutputSchema, annotations: writeAnnotations(true),
+  }, async ({ expectedRevision, id, adr }) => withErrors(async () => executeAdr({ expectedRevision, command: { type: 'adr.update', id, adr } }, await loadMcpPrincipal(personId))));
+
+  server.registerTool('submit_adr', {
+    title: 'Submit architecture decision', description: 'Submit a draft or revised ADR for approval and notify its nominated account approver. Requires the current shared workspace revision.',
+    inputSchema: adrTransitionInputSchema, outputSchema: adrOutputSchema, annotations: writeAnnotations(false, true),
+  }, async ({ expectedRevision, id }) => withErrors(async () => executeAdr({ expectedRevision, command: { type: 'adr.submit', id } }, await loadMcpPrincipal(personId))));
+
+  server.registerTool('approve_adr', {
+    title: 'Approve architecture decision', description: 'Record verified approval only as the configured actor who is the nominated account approver. Administrators cannot approve on behalf of another account. Plain-name approvers require record_adr_approval instead.',
+    inputSchema: adrTransitionInputSchema, outputSchema: adrOutputSchema, annotations: writeAnnotations(false, true),
+  }, async ({ expectedRevision, id }) => withErrors(async () => executeAdr({ expectedRevision, command: { type: 'adr.approve', id } }, await loadMcpPrincipal(personId))));
+
+  server.registerTool('request_adr_changes', {
+    title: 'Request architecture decision changes', description: 'The nominated account approver requests changes to a pending ADR with a required explanation. No administrator impersonation or viewer writes.',
+    inputSchema: adrCommentInputSchema, outputSchema: adrOutputSchema, annotations: writeAnnotations(false, true),
+  }, async ({ expectedRevision, id, comment }) => withErrors(async () => executeAdr({ expectedRevision, command: { type: 'adr.request_changes', id, comment } }, await loadMcpPrincipal(personId))));
+
+  server.registerTool('record_adr_approval', {
+    title: 'Record external architecture decision approval', description: 'Explicitly record approval attributed to a plain-name external approver, with an optional explanation. Records the configured actor as recorder and mode=recorded, never authenticated approval by that name. Cannot impersonate a nominated account.',
+    inputSchema: adrTransitionInputSchema.extend({ comment: z.string().trim().max(10000).default('') }).strict(), outputSchema: adrOutputSchema, annotations: writeAnnotations(false, true),
+  }, async ({ expectedRevision, id, comment }) => withErrors(async () => executeAdr({ expectedRevision, command: { type: 'adr.record_approval', id, comment } }, await loadMcpPrincipal(personId))));
+
+  server.registerTool('list_notifications', {
+    title: 'List personal notifications', description: 'List only the configured account’s private notifications, optionally unread only. No recipient override is accepted. Reading notifications does not advance shared revisions.',
+    inputSchema: notificationListQuerySchema, outputSchema: notificationPageOutputSchema, annotations: readOnlyAnnotations(),
+  }, async input => withErrors(async () => listNotifications(input, await loadMcpPrincipal(personId))));
+
+  server.registerTool('set_notification_read', {
+    title: 'Set personal notification read state', description: 'Set read or unread state for a notification belonging to the configured account only, including viewers. Idempotent personal preference, with no shared revision or business audit mutation.',
+    inputSchema: z.object({ id: identifier, read: z.boolean() }).strict(), outputSchema: z.object({ notification: workNotificationSchema }).strict(),
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ id, read }) => withErrors(async () => ({ notification: await setNotificationRead(id, read, await loadMcpPrincipal(personId)) })));
+
   server.registerTool('identity', {
     title: 'MCP identity',
     description: 'Return the explicitly configured Goalie principal and current workspace revision. The principal is re-read from the database for every call.',
@@ -348,6 +420,7 @@ export function createWorkMcpServer(personId = principalIdFromEnv()): McpServer 
     itemId?: string;
     body?: string;
     kind?: 'note' | 'blocker' | 'blocker_resolved';
+    mentionedPersonIds?: string[];
     goal?: z.infer<typeof goalInputSchema>;
     workstream?: z.infer<typeof workstreamInputSchema>;
     item?: z.infer<typeof itemInputSchema>;
@@ -377,9 +450,10 @@ export function createWorkMcpServer(personId = principalIdFromEnv()): McpServer 
   const tagUpdateInput = z.object({ expectedRevision, id: identifier, tag: tagInputSchema }).strict();
   const personCreateInput = z.object({ expectedRevision, person: personInputSchema }).strict();
   const personUpdateInput = z.object({ expectedRevision, id: identifier, person: personInputSchema }).strict();
-  const updateAddInput = z.object({ expectedRevision, itemId: identifier, kind: z.enum(['note', 'blocker', 'blocker_resolved']), body: z.string().trim().min(1).max(10000) }).strict();
+  const mentionedPersonIds = mentionedPersonIdsSchema.optional();
+  const updateAddInput = z.object({ expectedRevision, itemId: identifier, kind: z.enum(['note', 'blocker', 'blocker_resolved']), body: z.string().trim().min(1).max(10000), mentionedPersonIds }).strict();
   const entityDeleteInput = z.object({ expectedRevision, id: identifier }).strict();
-  const updateEditInput = z.object({ expectedRevision, id: identifier, body: z.string().trim().min(1).max(10000) }).strict();
+  const updateEditInput = z.object({ expectedRevision, id: identifier, body: z.string().trim().min(1).max(10000), mentionedPersonIds }).strict();
 
   registerMutation('create_goal', 'Create goal', 'Create a goal using the shared validated work service.', goalCreateInput, input => ({ type: 'goal.create', goal: input.goal as z.infer<typeof goalInputSchema> }));
   registerMutation('update_goal', 'Update goal', 'Replace a goal using the shared validated work service.', goalUpdateInput, input => ({ type: 'goal.update', id: input.id as string, goal: input.goal as z.infer<typeof goalInputSchema> }), true);
@@ -389,17 +463,16 @@ export function createWorkMcpServer(personId = principalIdFromEnv()): McpServer 
   registerMutation('delete_workstream', 'Delete workstream', 'Editors and administrators may delete an empty workstream. Its goal links are removed, not the goals; work and scoped tags block deletion.', entityDeleteInput, input => ({ type: 'workstream.delete', id: input.id as string }), true, true);
   registerMutation('create_work', 'Create work item', 'Create a work item using the shared validated work service. Items may be unassigned when assigneeIds is empty.', itemCreateInput, input => ({ type: 'item.create', item: input.item as z.infer<typeof itemInputSchema> }));
   registerMutation('update_work', 'Update work item', 'Replace the full work item input using the shared validated work service. Read the item first and send all fields to avoid dropping values; assigneeIds may be empty for unassigned work.', itemUpdateInput, input => ({ type: 'item.update', id: input.id as string, item: input.item as z.infer<typeof itemInputSchema> }), true);
-  registerMutation('delete_work', 'Delete work item', 'Delete a work item when the shared work service confirms it has no remaining children or updates.', entityDeleteInput, input => ({ type: 'item.delete', id: input.id as string }), true, true);
+  registerMutation('delete_work', 'Delete work item', 'Delete a work item when the shared work service confirms it has no remaining children, updates or linked ADRs.', entityDeleteInput, input => ({ type: 'item.delete', id: input.id as string }), true, true);
   registerMutation('create_tag', 'Create tag', 'Create a tag using the shared validated work service.', tagCreateInput, input => ({ type: 'tag.create', tag: input.tag as z.infer<typeof tagInputSchema> }));
   registerMutation('update_tag', 'Update tag', 'Replace a tag using the shared validated work service.', tagUpdateInput, input => ({ type: 'tag.update', id: input.id as string, tag: input.tag as z.infer<typeof tagInputSchema> }), true);
   registerMutation('delete_tag', 'Delete tag', 'Administrators may delete any unreferenced tag; an editor who leads its owning workstream may delete that stream’s unreferenced tag. Common tags require an administrator.', entityDeleteInput, input => ({ type: 'tag.delete', id: input.id as string }), true, true);
   registerMutation('create_person', 'Create person', 'Administrators only. Provision a person with a normalized, unique email and role through the shared revision-checked work service.', personCreateInput, input => ({ type: 'person.create', person: input.person as z.infer<typeof personInputSchema> }));
   registerMutation('update_person', 'Update person', 'Administrators only. Read the person first, then submit the full name, immutable email, and role input through the shared revision-checked work service.', personUpdateInput, input => ({ type: 'person.update', id: input.id as string, person: input.person as z.infer<typeof personInputSchema> }), true);
   registerMutation('delete_person', 'Delete person', 'Administrators only. Delete an unreferenced person, excluding the current account and the last administrator.', entityDeleteInput, input => ({ type: 'person.delete', id: input.id as string }), true, true);
-  registerMutation('add_work_update', 'Add work update', 'Append a typed note, blocker, or blocker_resolved event. Blocker text is limited to 4000 characters and sets the current blocker; blocker_resolved clears it; notes leave it unchanged. All events record author, time and assignee snapshot.', updateAddInput, input => ({ type: 'update.add', itemId: input.itemId as string, kind: input.kind as 'note' | 'blocker' | 'blocker_resolved', body: input.body as string }));
-  registerMutation('edit_work_update', 'Edit work update', 'Authors/admins may edit update text, preserving kind, author, timestamp and assignee snapshot. Editing the latest blocker event updates the current blocker; earlier events do not override later ones.', updateEditInput, input => ({ type: 'update.edit', id: input.id as string, body: input.body as string }));
+  registerMutation('add_work_update', 'Add work update', 'Append a typed note, blocker, or blocker_resolved event. Blocker text is limited to 4000 characters and sets the current blocker; blocker_resolved clears it; notes leave it unchanged. All events record author, time and assignee snapshot. Optional mentionedPersonIds sends private notifications to those workspace people.', updateAddInput, input => ({ type: 'update.add', itemId: input.itemId as string, kind: input.kind as 'note' | 'blocker' | 'blocker_resolved', body: input.body as string, ...(input.mentionedPersonIds === undefined ? {} : { mentionedPersonIds: input.mentionedPersonIds }) }));
+  registerMutation('edit_work_update', 'Edit work update', 'Authors/admins may edit update text, preserving kind, author, timestamp and assignee snapshot. Editing the latest blocker event updates the current blocker; earlier events do not override later ones. Omit mentionedPersonIds to preserve mentions, or send [] to clear them. Only newly added mentions notify.', updateEditInput, input => ({ type: 'update.edit', id: input.id as string, body: input.body as string, ...(input.mentionedPersonIds === undefined ? {} : { mentionedPersonIds: input.mentionedPersonIds }) }));
   registerMutation('delete_work_update', 'Delete work update', 'Authors/admins may delete an update. Deleting a blocker event recomputes current state from remaining blocker history or the preserved pre-timeline baseline.', entityDeleteInput, input => ({ type: 'update.delete', id: input.id as string }), true, true);
 
   return server;
 }
-

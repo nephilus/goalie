@@ -79,7 +79,31 @@ Open `http://127.0.0.1:4310`. The demo seed creates synthetic people, two goals,
 
 On the first development load, Vite may still be optimizing dependencies. If the page renders but controls do not respond and the browser reports 504 responses for `/node_modules/.vite/deps/`, wait for optimization to finish and reload. This is a development-server recovery, not an instruction to ignore production errors.
 
+## Optional workstream browser acceptance
+
+`tests/browser/workstream-browser.mjs` uses a fresh ignored `.local/workstream-acceptance-*` instance. Run its migrations and demo seed explicitly, then start its Dex and app. Use a separate compiled build directory, not one served by another running instance. The harness requires Node 24.14+ and an external Playwright module with Chrome available.
+
+The instance must contain a private `.env` with matching `APP_URL`, loopback `DATABASE_URL`, and loopback `OIDC_ISSUER`, plus private `credentials.json` with a `users` array containing synthetic admin, editor, and viewer records (`email`, `password`, `role`). Only `example.test` identities and a demo workspace are accepted. The harness adds synthetic workstream fixtures for 8-, 15-, and 31-day quiet boundaries, a blocked subtask, completed work, and a unique retention case. Do not point it at a live workspace.
+
+```sh
+node tests/browser/workstream-browser.mjs \
+  --instance-dir .local/workstream-acceptance-EXAMPLE \
+  --base-url http://127.0.0.1:4328 \
+  --playwright-module /absolute/path/to/playwright/index.mjs
+```
+
+Choose unused loopback ports and pass the app origin configured in that instance. Results and screenshots stay in a timestamped `browser-*` directory inside it. Keep instance files private and ignored. Stop your owned app, Dex, and database after testing. This optional harness is separate from the helper tests and database-backed suite. A desktop Chrome run with a narrow viewport does not qualify physical devices or other browsers.
+
 ## Tests and builds
+
+The workstream review helpers and existing list-display rules can be checked without a database or AI provider. Use the Node version required above:
+
+```sh
+node --import tsx --test tests/workstream-view.test.ts \
+  tests/work-list-view.test.ts tests/work-display.test.ts
+```
+
+These synthetic tests cover review windows, task/subtask counts, Quiet exclusions, directory filters/sorts, assessment eligibility, and retained Attention items. They do not replace authenticated browser acceptance or the full database-backed suite. See [workstream review](workstream-view.md) for the behavior contract.
 
 Run typechecking and the full TAP suite against a disposable database. Set both database variables because database-backed suites use `WORK_TEST_DATABASE_URL`; use a database dedicated to tests.
 

@@ -2,13 +2,13 @@
 
 ## Product shape
 
-Goalie is a focused work surface: scan cross-team work, open a record, make a small update, and return to the list. The current frontend does not serve portfolio dashboards, dependency graphs, boards, timelines, or coordination workflows. The active route is `app/routes/work.tsx`; the route adapters are in `app/routes.ts` and the shared service is in `app/server/work.server.ts`.
+Goalie is a focused work surface: scan cross-team work, open a record, make a small update, and return to the list. The current frontend does not serve portfolio dashboards, dependency graphs, boards, planning timelines, or coordination workflows. The active route is `app/routes/work.tsx`; the route adapters are in `app/routes.ts` and the shared service is in `app/server/work.server.ts`.
 
-The UI uses existing shadcn/Radix primitives in `app/components/ui` and Lucide icons. `app/work.css` owns layout and theme tokens. There is no second UI kit or duplicate Sheet library.
+The UI uses existing shadcn/Radix primitives in `app/components/ui` and Lucide icons. `app/work.css` owns shared layout and theme tokens; `app/workstream.css` adds the workstream directory and review layout. There is no second UI kit or duplicate Sheet library.
 
 ## Information architecture
 
-The work surface provides All work and My work, plus Goals, Workstreams, Shared tags, People, and ADRs under Manage. Work items belong to one workstream and may have one level of subtasks. Goals link to workstreams many-to-many; an item's workstream goals are context, not individual contribution claims. Tags are reusable categories: a scoped tag belongs to one workstream, while **Common** means available to every workstream.
+The work surface provides All work, My work, and Workstreams as Workspace destinations, plus Goals, Shared tags, People, and ADRs under Manage. Work items belong to one workstream and may have one level of subtasks. Goals link to workstreams many-to-many; an item's workstream goals are context, not individual contribution claims. Tags are reusable categories: a scoped tag belongs to one workstream, while **Common** means available to every workstream.
 
 Rows expose typed Updates and Edit actions, contextual Add subtask/New task/New workstream actions where permitted, and private Star/Unstar state. Contextual creation opens a complete unsaved draft with the parent, workstream, or goal preselected. Only explicit Save/Create persists it. A completed root must be reopened before adding a subtask, and children cannot have grandchildren.
 
@@ -31,7 +31,7 @@ Search and each filter category use any-of semantics; different categories inter
 
 Work-list ordering is a display preference, separate from filters and saved assessment scope. **Current order** preserves workstream-major snapshot order; **Latest update** ranks parent groups across workstreams by their own or visible matching subtasks' newest surviving timeline post; **Due date** uses each item's own date, earliest first and undated last; **Title A–Z** uses casefolded titles with stable ID ties. Children remain nested. Rows show absolute latest-update times and name the subtask when it supplies the parent cue. Field edits and stars do not advance recency; editing a post retains its time, and deletion falls back to surviving history. Expanded details show only the item's own latest update.
 
-The Workstreams directory searches title and description, ignoring case and surrounding whitespace. Search and sort choices survive section changes and saves within the mounted route but reset on reload. Directory counts/actions still use the full workspace; Clear search restores input focus. Empty workspaces and searches with no matches have distinct states.
+The Workstreams directory searches title and description and supports sorting and lead, linked-goal, and attention filters. Opening a stream starts in **Attention**, with **All tasks** as an alternative. Review counts distinguish tasks from subtasks and derive Updated/Quiet from a 7-, 14-, or 30-day window of task timeline activity. Quiet excludes To do and Done work. Blocked reflects the current blocker on unfinished work, not the number of blocker posts. See [workstream review](docs/workstream-view.md) for exact count, navigation, and AI semantics. The existing All work login landing remains unchanged; there is no account-level default-view preference.
 
 Shared mutations run through the typed schemas in `app/shared/work.ts`, authorization and transaction logic in `app/server/work.server.ts`, and the web/MCP adapters. Every shared write supplies an expected workspace revision; stale writes fail closed rather than silently rebasing a draft. Deletions are exact-target and revision-checked, block dependent records instead of cascading, and retain audit history.
 

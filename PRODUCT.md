@@ -9,6 +9,7 @@ Goalie is self-hosted work tracking for teams that need a shared view across per
 - Goals linked to workstreams many-to-many.
 - Work items with one home workstream, required status (`todo`, `doing`, `done`), optional assignees, due date, blocker, tags, one-level subtasks, and typed updates.
 - All work/My work views with search, multi-select filters, workstream-goal context, and private per-account stars.
+- A separate Workstreams workspace: directory search and filters, Attention by default inside a stream, All tasks as an alternative, and on-demand 7-, 14-, or 30-day review counts. Task timelines remain the update source. See [workstream review](docs/workstream-view.md).
 - Admin-only editing of existing People records; email is immutable and roles are `admin`, `editor`, or `viewer`.
 - Exact-target, revision-checked mutations that block dependent deletions rather than cascading.
 - Optional draft Goalie Suggestions and separately opted-in saved-work decisions. Both are disabled unless explicitly configured; suggestions never save or assign people automatically.
@@ -25,7 +26,7 @@ The server rechecks the current database role inside the transaction boundary. U
 
 ## Principles and non-goals
 
-Goalie keeps incomplete information visible, avoids invented dependencies or ownership, and makes Save/Create the explicit persistence step. Stars are private watch preferences, not priority labels. It is not a hosted public service, autonomous coordinator, portfolio suite, issue-tracker replacement, or health/urgency classifier. Legacy tables and migrations remain for compatibility but are not part of the current UI model.
+Goalie keeps incomplete information visible, avoids invented dependencies or ownership, and makes Save/Create the explicit persistence step. Stars are private watch preferences, not priority labels. Workstream Attention names specific reasons to review work, not an overall health or urgency score. Opening a stream does not change the login landing view or save an account-level default-view preference. It is not a hosted public service, autonomous coordinator, portfolio suite, issue-tracker replacement, or health/urgency classifier. Legacy tables and migrations remain for compatibility but are not part of the current UI model.
 
 ## Technical contract
 

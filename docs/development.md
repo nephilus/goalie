@@ -1,5 +1,22 @@
 # Development
 
+## Optional ADR browser acceptance
+
+`tests/browser/adr-browser.mjs` exercises ADR creation, verified approval, inbox navigation, and mobile draft preservation. It writes synthetic records, so prepare a fresh ignored `.local/adr-ui-acceptance-*` instance using the isolated database, migrations, demo seed, and Dex setup below. Run that instance's app, preferably from a separate compiled build.
+
+The harness expects the demo task `Review pilot launch readiness`, standard synthetic people, and a private `credentials.json` with a `users` array containing `email`, `password`, and `role` for admin, editor, and viewer. Keep this file private and ignored. The instance's `.env` must define the matching `APP_URL`, loopback `DATABASE_URL`, and loopback `OIDC_ISSUER`. Non-loopback origins and identities outside `example.test` are rejected.
+
+Install Playwright separately inside the ignored instance, with Chrome available, then run from the repository root:
+
+```sh
+node tests/browser/adr-browser.mjs \
+  --instance-dir .local/adr-ui-acceptance-EXAMPLE \
+  --base-url http://127.0.0.1:4318 \
+  --playwright-module .local/adr-ui-acceptance-EXAMPLE/node_modules/playwright/index.mjs
+```
+
+There is no live-instance default or production dependency. Results and screenshots go into a timestamped `browser-*` directory inside the instance. The harness closes its browser. Stop your owned app, Dex, and database after testing. These checks supplement the database-backed suite. A 390px Chrome viewport does not qualify physical devices or other browsers.
+
 ## Prerequisites
 
 Install Node.js 24.14 or newer, Bun 1.4.2, Podman, and the pinned `pg0` binary. The devcontainer installs the pinned pg0 v0.15.2 Linux x86_64 binary and verifies checksum `06c4678ff7b461dba8ed1f95c5e202ead3b57b70f549a22c17a94985121c0bf5`. Do not use a runtime CDN or commit generated dependencies.

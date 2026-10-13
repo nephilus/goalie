@@ -48,7 +48,9 @@ Approval requests and mentions use one notification model. Each notification bel
 
 The backend persists notifications in the same transaction as the source mutation. No email or external delivery is involved. Source identifiers include the owning item and ADR or timeline-update ID, so the UI can navigate without guessing from text.
 
-Mentions explicitly name existing person IDs in ADRs and timeline posts. Plain names do not receive notifications. The backend does not infer recipients from arbitrary `@name` text. On edit, newly added recipients are notified; unchanged recipients are not notified again. Self-notifications are suppressed. Removing a mention invalidates its outstanding notification, and a later re-addition can notify again. Deleting a timeline post removes its associated notifications. Obsolete approval requests are invalidated when review ends or a decision changes.
+Mentions explicitly name existing person IDs in ADRs and timeline posts. Plain names do not receive notifications. The backend does not infer recipients from arbitrary `@name` text. On edit, newly added recipients are notified, including the acting account; unchanged recipients are not notified again. Removing a mention invalidates its outstanding notification, and a later re-addition can notify again. Deleting a timeline post removes its associated notifications. Obsolete approval requests are invalidated when review ends or a decision changes.
+
+Selecting an approver keeps a new ADR in Draft and does not send an approval request. **Request approval** explicitly submits it and notifies the nominated account, including when the actor nominates themselves. Approval-result notifications still exclude the actor. Notifications grant no approval rights and never submit or approve an ADR automatically. These semantics apply to new events after migration `0014`; previously suppressed notifications are not backfilled.
 
 The browser release should provide an in-app inbox with unread/read state and links to the source. Mention selection must ship with approval notifications rather than adding a second notification implementation later.
 

@@ -51,6 +51,7 @@ async function selectSnapshot(client: PoolClient, actorId: string): Promise<Snap
   const tags = await client.query<Row>('SELECT id, name, description, workstream_id FROM simple_tags ORDER BY lower(name), id');
   const updates = await client.query<Row>('SELECT id, item_id, author_id, body, kind, assignee_ids, created_at, ARRAY(SELECT person_id FROM simple_update_mentions m WHERE m.update_id = u.id ORDER BY person_id) AS mentioned_person_ids FROM simple_updates u ORDER BY created_at, id');
   const changes = await client.query<Row>('SELECT id, actor_id, action, entity_id, created_at FROM simple_changes ORDER BY created_at, id');
+  const adrHistory = await client.query<Row>('SELECT id, adr_id, actor_id, action, comment, revision, snapshot->>\'itemId\' AS item_id, snapshot->>\'decision\' AS decision, snapshot->\'approval\'->>\'mode\' AS approval_mode, created_at FROM simple_adr_history ORDER BY created_at, id');
   const starredItems = await client.query<Row>('SELECT item_id FROM simple_item_stars WHERE person_id = $1 ORDER BY item_id', [actorId]);
   const streamGoalIds = new Map<string, string[]>();
   for (const row of streamGoals.rows) streamGoalIds.set(row.workstream_id, [...(streamGoalIds.get(row.workstream_id) ?? []), row.goal_id]);
@@ -67,6 +68,7 @@ async function selectSnapshot(client: PoolClient, actorId: string): Promise<Snap
     tags: tags.rows.map(mapTag),
     updates: updates.rows.map(row => ({ id: row.id, itemId: row.item_id, authorId: row.author_id, body: row.body, kind: row.kind, assigneeIds: row.assignee_ids, mentionedPersonIds: row.mentioned_person_ids, createdAt: iso(row.created_at) })),
     changes: changes.rows.map(row => ({ id: row.id, actorId: row.actor_id, action: row.action, entityId: row.entity_id, createdAt: iso(row.created_at) })),
+    adrActivities: adrHistory.rows.map(row => ({ id: row.id, adrId: row.adr_id, itemId: row.item_id, authorId: row.actor_id, action: row.action, decision: row.decision, comment: row.comment, approvalMode: row.approval_mode ?? null, revision: Number(row.revision), createdAt: iso(row.created_at) })),
     starredItemIds: starredItems.rows.map(row => row.item_id),
   } satisfies Snapshot;
   return snapshotSchema.parse(snapshot);
@@ -189,7 +191,7 @@ async function replaceUpdateMentions(client: PoolClient, updateId: string, itemI
   await client.query("UPDATE simple_notifications SET invalidated_at = now() WHERE update_id = $1 AND kind = 'mention' AND invalidated_at IS NULL AND NOT (recipient_id = ANY($2::text[]))", [updateId, mentionedPersonIds]);
   for (const recipientId of mentionedPersonIds) {
     await client.query('INSERT INTO simple_update_mentions(update_id, person_id) VALUES($1, $2)', [updateId, recipientId]);
-    if (recipientId === actorId || previous.has(recipientId)) continue;
+    if (previous.has(recipientId)) continue;
     const notificationId = id();
     await client.query("INSERT INTO simple_notifications(id, recipient_id, actor_id, kind, item_id, update_id, dedupe_key) VALUES($1,$2,$3,'mention',$4,$5,$6)", [notificationId, recipientId, actorId, itemId, updateId, `update:${updateId}:mention:${notificationId}:${recipientId}`]);
   }

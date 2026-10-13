@@ -21,7 +21,10 @@ export const updateKindSchema = z.enum(['note', 'blocker', 'blocker_resolved']);
 export const mentionedPersonIdsSchema = ids;
 export const updateSchema = z.object({ id, itemId: id, authorId: id, body: z.string(), kind: updateKindSchema, assigneeIds: ids.nullable(), mentionedPersonIds: mentionedPersonIdsSchema.optional(), createdAt: z.string() });
 export const changeSchema = z.object({ id, actorId: id, action: z.string(), entityId: id, createdAt: z.string() });
-export const snapshotSchema = z.object({ revision: z.number().int().nonnegative(), demo: z.boolean(), people: z.array(personSchema), goals: z.array(goalSchema), workstreams: z.array(workstreamSchema), items: z.array(itemSchema), tags: z.array(tagSchema), updates: z.array(updateSchema), changes: z.array(changeSchema), starredItemIds: z.array(id) });
+// Read-only history projection, deliberately separate from writable ordinary updates.
+export const adrActivitySchema = z.object({ id, adrId: id, itemId: id, authorId: id, action: z.enum(['adr.create', 'adr.update', 'adr.submit', 'adr.approve', 'adr.request_changes', 'adr.record_approval']), decision: z.string(), comment: z.string().nullable(), approvalMode: z.enum(['verified', 'recorded']).nullable(), revision: z.number().int().nonnegative(), createdAt: z.string() });
+export type AdrActivity = z.infer<typeof adrActivitySchema>;
+export const snapshotSchema = z.object({ revision: z.number().int().nonnegative(), demo: z.boolean(), people: z.array(personSchema), goals: z.array(goalSchema), workstreams: z.array(workstreamSchema), items: z.array(itemSchema), tags: z.array(tagSchema), updates: z.array(updateSchema), adrActivities: z.array(adrActivitySchema).optional(), changes: z.array(changeSchema), starredItemIds: z.array(id) });
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('goal.create'), goal: goalInputSchema }).strict(),
   z.object({ type: z.literal('goal.update'), id, goal: goalInputSchema }).strict(),

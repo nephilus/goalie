@@ -34,14 +34,44 @@ test('ADR migrations upgrade populated pre-ADR work without rewriting records', 
     });
     const tables = ['people', 'simple_workspace', 'simple_workstreams', 'simple_items', 'simple_updates'];
     const before = await Promise.all(tables.map(table => pool.query(`SELECT * FROM ${table} ORDER BY id`).then(result => result.rows)));
+    // Reproduce an already-applied ADR schema before the forward-only fix.
+    await withTransaction(async client => {
+      for (const file of ['0012_adrs.sql', '0013_update_mentions.sql']) {
+        const sql = readFileSync(join(process.cwd(), 'migrations', file), 'utf8');
+        await client.query(sql);
+        await client.query('INSERT INTO schema_migrations(version,checksum) VALUES($1,$2)', [file.split('_')[0], createHash('sha256').update(sql).digest('hex')]);
+      }
+    });
+    const constraints = async () => (await pool.query("SELECT conname, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='simple_notifications'::regclass ORDER BY conname")).rows;
+    const legacyConstraints = await constraints();
+    assert.equal(legacyConstraints.find(row => row.conname === 'simple_notifications_check1')?.definition, 'CHECK ((recipient_id <> actor_id))');
+    const selfNotification = () => pool.query("INSERT INTO simple_notifications(id,recipient_id,actor_id,kind,item_id,update_id,dedupe_key) VALUES('self-notice','upgrade-editor','upgrade-editor','mention','upgrade-item','upgrade-post','self-notice')");
+    await assert.rejects(selfNotification(), (error: unknown) => {
+      assert.ok(error && typeof error === 'object' && 'code' in error && 'constraint' in error);
+      assert.equal(error.code, '23514');
+      assert.equal(error.constraint, 'simple_notifications_check1');
+      return true;
+    });
     await migrate();
     await migrate();
+    assert.deepEqual(await constraints(), legacyConstraints.filter(row => row.conname !== 'simple_notifications_check1'), 'only the self-notification check is removed');
     const after = await Promise.all(tables.map(table => pool.query(`SELECT * FROM ${table} ORDER BY id`).then(result => result.rows)));
     assert.deepEqual(after, before, 'additive migrations preserve existing rows, timestamps, revision and attribution');
-    assert.equal((await pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 13);
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 14);
     for (const table of ['simple_adrs', 'simple_adr_history', 'simple_notifications', 'simple_update_mentions']) {
       assert.equal((await pool.query(`SELECT count(*)::int AS n FROM ${table}`)).rows[0].n, 0);
     }
+    await selfNotification();
+    const sqlError = (code: string, constraint: string) => (error: unknown) => {
+      assert.ok(error && typeof error === 'object' && 'code' in error && 'constraint' in error);
+      assert.equal(error.code, code);
+      assert.equal(error.constraint, constraint);
+      return true;
+    };
+    await assert.rejects(pool.query("UPDATE simple_notifications SET update_id=NULL WHERE id='self-notice'"), sqlError('23514', 'simple_notifications_check'));
+    await assert.rejects(pool.query("UPDATE simple_notifications SET kind='unknown' WHERE id='self-notice'"), sqlError('23514', 'simple_notifications_kind_check'));
+    await assert.rejects(pool.query("UPDATE simple_notifications SET recipient_id='missing' WHERE id='self-notice'"), sqlError('23503', 'simple_notifications_recipient_id_fkey'));
+    await assert.rejects(pool.query("INSERT INTO simple_notifications(id,recipient_id,actor_id,kind,item_id,update_id,dedupe_key) VALUES('duplicate','upgrade-editor','upgrade-editor','mention','upgrade-item','upgrade-post','self-notice')"), sqlError('23505', 'simple_notifications_dedupe_key_key'));
     const actor: Person = { id: 'upgrade-editor', name: 'Upgrade editor', email: 'upgrade@example.test', role: 'editor' };
     const { readWork } = await import('../app/server/work.server');
     const state = await readWork(actor);

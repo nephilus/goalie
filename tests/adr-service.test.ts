@@ -35,6 +35,7 @@ test('ADR services preserve authorization, immutable history and transactional c
     const parentId = parentState.items[0].id;
     const childState = await work({ type: 'item.create', item: { ...emptyItem(streamId), title: 'Child', parentId } });
     const itemId = childState.items.find(item => item.parentId === parentId)!.id;
+    const originalUpdates = (await work({ type: 'update.add', itemId, kind: 'note', body: 'Existing editable timeline note' })).updates;
     const create = { type: 'adr.create' as const, adr: { ...fields, itemId, approver: { kind: 'person' as const, personId: approver.id } } };
     let adr = (await mutate(create)).adr;
 
@@ -82,7 +83,7 @@ test('ADR services preserve authorization, immutable history and transactional c
       assert.deepEqual(adr.approval, approved);
       const mentions = await listNotifications({}, viewer);
       assert.ok(mentions.items.some(item => item.adrId === adr.id && item.kind === 'mention'));
-      assert.equal((await listNotifications({}, editor)).items.some(item => item.adrId === adr.id && item.kind === 'mention'), false);
+      assert.equal((await listNotifications({}, editor)).items.some(item => item.adrId === adr.id && item.kind === 'mention'), true);
       const count = (await pool.query("SELECT count(*)::int AS n FROM simple_notifications WHERE adr_id=$1 AND kind='mention'", [adr.id])).rows[0].n;
       adr = (await mutate({ type: 'adr.update', id: adr.id, adr: input(adr) })).adr;
       assert.equal((await pool.query("SELECT count(*)::int AS n FROM simple_notifications WHERE adr_id=$1 AND kind='mention'", [adr.id])).rows[0].n, count);
@@ -100,6 +101,41 @@ test('ADR services preserve authorization, immutable history and transactional c
       await assert.rejects(mutate({ type: 'adr.approve', id: adr.id }, approver), code('forbidden'));
       adr = (await mutate({ type: 'adr.request_changes', id: adr.id, comment: 'Need rationale' }, admin)).adr;
       assert.equal(adr.status, 'changes_requested');
+    });
+
+    await t.test('self mentions and explicit self approval requests notify without changing draft or authorization semantics', async () => {
+      let self = (await mutate({ ...create, adr: { ...create.adr, approver: { kind: 'person', personId: editor.id }, mentionedPersonIds: [editor.id] } })).adr;
+      const notices = async () => (await listNotifications({}, editor)).items.filter(item => item.adrId === self.id);
+      assert.equal(self.status, 'draft');
+      assert.deepEqual((await notices()).map(item => item.kind), ['mention']);
+      const mention = (await notices())[0];
+      assert.equal(mention.actorId, editor.id);
+      assert.equal(mention.recipientId, editor.id);
+      await assert.rejects(mutate({ type: 'adr.approve', id: self.id }), code('invalid_transition'));
+      self = (await mutate({ type: 'adr.update', id: self.id, adr: input(self) })).adr;
+      assert.equal(self.status, 'draft');
+      assert.deepEqual(await notices(), [mention], 'unchanged self mention does not resend or implicitly request approval');
+      self = (await mutate({ type: 'adr.submit', id: self.id })).adr;
+      assert.equal(self.status, 'pending');
+      const request = (await notices()).find(item => item.kind === 'approval_requested')!;
+      assert.ok(request);
+      assert.equal(request.actorId, editor.id);
+      assert.equal(request.recipientId, editor.id);
+      await assert.rejects(setNotificationRead(request.id, true, admin), code('not_found'));
+      await setNotificationRead(request.id, true, editor);
+      assert.equal((await readAdr(self.id, editor)).adr.status, 'pending', 'reading does not approve');
+      await assert.rejects(mutate({ type: 'adr.approve', id: self.id }, admin), code('forbidden'));
+      await assert.rejects(mutate({ type: 'adr.submit', id: self.id }), code('invalid_transition'));
+      self = (await mutate({ type: 'adr.approve', id: self.id })).adr;
+      assert.equal(self.approval?.actorId, editor.id);
+      assert.deepEqual(await notices(), [mention], 'request is invalidated and self approval results stay suppressed');
+      self = (await mutate({ type: 'adr.update', id: self.id, adr: { ...input(self), mentionedPersonIds: [] } })).adr;
+      assert.deepEqual(await notices(), []);
+      await assert.rejects(setNotificationRead(mention.id, true, editor), code('not_found'));
+      self = (await mutate({ type: 'adr.update', id: self.id, adr: { ...input(self), mentionedPersonIds: [editor.id] } })).adr;
+      assert.equal((await notices()).length, 1);
+      assert.notEqual((await notices())[0].id, mention.id);
+      assert.equal(self.status, 'approved', 'mentions alone do not change review state');
     });
 
     await t.test('plain-name approval rejects account bypass and newly provisioned collisions', async () => {
@@ -174,6 +210,28 @@ test('ADR services preserve authorization, immutable history and transactional c
         await pool.query('DROP TRIGGER force_adr_rollback ON simple_changes');
         await pool.query('DROP FUNCTION fail_adr_change()');
       }
+    });
+
+    await t.test('work snapshots project immutable ADR activity without creating editable updates', async () => {
+      const history = (await pool.query('SELECT id,adr_id,actor_id,action,comment,revision,snapshot,created_at FROM simple_adr_history ORDER BY created_at,id')).rows;
+      const snapshot = await readWork(viewer);
+      assert.deepEqual(snapshot.updates, originalUpdates, 'all ADR mutations leave existing editable notes untouched');
+      assert.deepEqual(snapshot.adrActivities, history.map(row => ({
+        id: row.id, adrId: row.adr_id, itemId: row.snapshot.itemId, authorId: row.actor_id,
+        action: row.action, decision: row.snapshot.decision, comment: row.comment,
+        approvalMode: row.snapshot.approval?.mode ?? null,
+        revision: Number(row.revision), createdAt: row.created_at.toISOString(),
+      })));
+      const activities = snapshot.adrActivities!;
+      assert.deepEqual([...new Set(activities.map(entry => entry.action))].sort(), ['adr.approve', 'adr.create', 'adr.record_approval', 'adr.request_changes', 'adr.submit', 'adr.update']);
+      const initial = activities.find(entry => entry.adrId === adr.id && entry.action === 'adr.create')!;
+      assert.equal(initial.decision, fields.decision, 'creation retains original decision after later edits');
+      assert.equal(initial.authorId, editor.id);
+      assert.ok(activities.some(entry => entry.adrId === adr.id && entry.decision === 'Changed decision'));
+      assert.ok(activities.some(entry => entry.action === 'adr.approve' && entry.authorId === approver.id && entry.approvalMode === 'verified'));
+      assert.ok(activities.some(entry => entry.action === 'adr.record_approval' && entry.authorId === admin.id && entry.approvalMode === 'recorded'));
+      await assert.rejects(work({ type: 'update.delete', id: initial.id }), code('not_found'));
+      assert.deepEqual((await readWork(admin)).adrActivities, activities, 'normal update deletion cannot remove ADR history');
     });
 
     await t.test('SQL constraints reject malformed identities and nonexistent account references', async () => {

@@ -46,7 +46,7 @@ For an ADR, verified approval means the configured principal is the nominated ap
 
 Work-update `kind` is `note`, `blocker`, or `blocker_resolved`. Body is nonempty and at most 10,000 characters; blocker bodies are limited to 4,000. A blocker sets current blocker text, blocker resolution clears it, and a note leaves it unchanged. Editing/deleting blocker history recomputes the current blocker as appropriate.
 
-`mentionedPersonIds` contains up to 100 distinct existing person IDs. Omission on create means no mentions. Omission on edit preserves existing mentions, while `[]` clears them. Only newly added recipients receive notifications, excluding the acting account. Text such as `@Jane` alone does not notify anyone. The browser mention picker resolves selections to IDs. Returned work updates include the persisted mention IDs. These commands use the existing shared web service as well as MCP, with existing authorization unchanged.
+`mentionedPersonIds` contains up to 100 distinct existing person IDs. Omission on create means no mentions. Omission on edit preserves existing mentions, while `[]` clears them. Only newly added recipients receive notifications, including the acting account. Text such as `@Jane` alone does not notify anyone. The browser mention picker resolves selections to IDs. Returned work updates include the persisted mention IDs. These commands use the existing shared web service as well as MCP, with existing authorization unchanged.
 
 ## ADR input
 
@@ -75,7 +75,7 @@ There is one `requester` and one `approver`. Requester defaults to the configure
 | `list_adr_history` | `adrId`, optional `cursor`, `limit` | `{revision, items, nextCursor}`. Newest revision first, full snapshots and actor attribution. |
 | `create_adr` | `expectedRevision`, `adr` (seven fields, `itemId`, approver, optional requester/document/mentions) | `{revision, adr}`. Creates Draft; does not submit or approve. |
 | `update_adr` | `expectedRevision`, `id`, full editable `adr` | `{revision, adr}`. Changed decision content or identities resets review to Draft; prior history remains. |
-| `submit_adr` | `expectedRevision`, `id` | Draft/Changes requested → Pending. Notifies the nominated account, if any and not self. |
+| `submit_adr` | `expectedRevision`, `id` | Draft/Changes requested → Pending. Notifies the nominated account, including self. Selecting an approver on a draft does not send this request. |
 | `approve_adr` | `expectedRevision`, `id` | Pending → Approved, only as the nominated existing-person approver. `approval.mode` is `verified`. |
 | `request_adr_changes` | `expectedRevision`, `id`, nonempty `comment` (≤10,000 characters) | Pending → Changes requested, only as the nominated existing-person approver. |
 | `record_adr_approval` | `expectedRevision`, `id`, optional `comment` (≤10,000 characters) | Pending → Approved for plain-name approvers only. Any editor/admin may record; `approval.mode` is `recorded`. |
@@ -128,7 +128,7 @@ For an external plain-name approver, steps 1–3 are the same but no account not
 
 Kinds are `approval_requested`, `approval_result`, and `mention`. Events contain `actorId`, `recipientId`, `itemId`, and exactly one of `adrId`/`updateId`, plus timestamps. These are source references, not standalone URLs. The browser inbox uses them to open the ADR overlay or the owning task's timeline entry.
 
-Approval results notify an existing-person requester unless they performed the action themselves. If the requester is a plain name, there is no account inbox for that identity. Mentions and approval requests suppress self-notifications. Removing mentions or ending/changing a pending review invalidates obsolete notifications. Re-adding a removed mention creates a new event. Deleting a timeline post removes its notifications. Reading or marking an event never approves the ADR.
+Approval results notify an existing-person requester unless they performed the action themselves. If the requester is a plain name, there is no account inbox for that identity. Mentions and explicit approval requests include self-notifications. Removing mentions or ending/changing a pending review invalidates obsolete notifications. Re-adding a removed mention creates a new event. Deleting a timeline post removes its notifications. Reading or marking an event never approves the ADR. Migration `0014` enables new self-notifications without backfilling previously suppressed events.
 
 ## Errors and recovery
 

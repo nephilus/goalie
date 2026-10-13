@@ -1,4 +1,5 @@
-import type { Item, Snapshot, Update, Workstream } from '../shared/work';
+import type { Item, Snapshot, Workstream } from '../shared/work';
+import { timelineByItemId, type TimelineEntry } from './work-timeline';
 import type { UseWorkAssessmentsResult } from './use-work-assessments';
 
 export type ReviewWindow = 7 | 14 | 30;
@@ -15,7 +16,7 @@ export type WorkstreamSummary = {
 };
 export type WorkstreamView = {
   summaries: WorkstreamSummary[];
-  historyByItemId: Map<string, Update[]>;
+  historyByItemId: Map<string, TimelineEntry[]>;
   reasonsByItemId: Map<string, AttentionReason[]>;
 };
 export type DecisionAssessment = Pick<UseWorkAssessmentsResult,
@@ -43,14 +44,7 @@ export function hasCurrentDecision(itemId: string, assessment?: DecisionAssessme
 /** Pure snapshot derivation. The caller supplies its clock, including null during SSR. */
 export function buildWorkstreamView(snapshot: Snapshot, days: ReviewWindow, now: number | null, assessment?: DecisionAssessment): WorkstreamView {
   const cutoff = now === null ? null : now - days * 86_400_000;
-  const historyByItemId = new Map<string, Update[]>();
-  for (const update of snapshot.updates) {
-    const history = historyByItemId.get(update.itemId) ?? [];
-    history.push(update);
-    historyByItemId.set(update.itemId, history);
-  }
-  for (const history of historyByItemId.values()) history.sort((a, b) =>
-    (Date.parse(b.createdAt) - Date.parse(a.createdAt)) || b.id.localeCompare(a.id));
+  const historyByItemId = timelineByItemId(snapshot);
   const summaries = snapshot.workstreams.map(stream => ({
     stream, total: emptyCounts(), updated: emptyCounts(), quiet: emptyCounts(),
     blocked: emptyCounts(), attention: emptyCounts(), latestTimelineAt: null as number | null,

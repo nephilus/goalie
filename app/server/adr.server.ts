@@ -55,7 +55,7 @@ async function assertReferences(client: PoolClient, adr: Adr): Promise<void> {
   }
 }
 async function notify(client: PoolClient, adr: Adr, actor: Person, recipientId: string, kind: WorkNotification['kind']): Promise<void> {
-  if (recipientId === actor.id) return;
+  if (recipientId === actor.id && kind === 'approval_result') return;
   await client.query('INSERT INTO simple_notifications(id, recipient_id, actor_id, kind, item_id, adr_id, dedupe_key) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (dedupe_key) DO NOTHING', [randomUUID(), recipientId, actor.id, kind, adr.itemId, adr.id, `adr:${adr.id}:${adr.revision}:${kind}:${recipientId}`]);
 }
 const contentKeys = ['context', 'concern', 'decision', 'alternatives', 'consequences', 'downsides', 'rationale', 'documentUrl'] as const;

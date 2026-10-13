@@ -209,7 +209,7 @@ test('ADR MCP lifecycle, authorization, immutable history, private notifications
       assert.ok(changes.some(change => change.entityId === first.id), 'ADR writes publish shared business audit');
     });
 
-    await t.test('no-op and mention-only edits retain approval and suppress self notifications', async () => {
+    await t.test('no-op and mention-only edits retain approval and notify self mentions once', async () => {
       const approval = first.approval;
       first = await writeAdr(author, 'update_adr', { id: first.id, adr: editable(first) });
       assert.equal(first.status, 'approved');
@@ -218,7 +218,12 @@ test('ADR MCP lifecycle, authorization, immutable history, private notifications
       first = await writeAdr(author, 'update_adr', { id: first.id, adr: { ...editable(first), mentionedPersonIds: ['viewer', 'author'] } });
       assert.equal(first.status, 'approved');
       assert.deepEqual(first.approval, approval);
-      assert.deepEqual((await listNotifications(author)).items, before);
+      const after = (await listNotifications(author)).items;
+      const selfMention = after.find(value => value.adrId === first.id && value.kind === 'mention')!;
+      assert.ok(selfMention);
+      assert.equal(selfMention.actorId, 'author');
+      assert.equal(selfMention.recipientId, 'author');
+      assert.deepEqual(after.filter(value => value.id !== selfMention.id), before);
       const oldMention = (await listNotifications(viewer)).items.find(value => value.adrId === first.id && value.kind === 'mention')!;
       first = await writeAdr(author, 'update_adr', { id: first.id, adr: { ...editable(first), mentionedPersonIds: ['author'] } });
       assert.equal(first.status, 'approved');
@@ -288,7 +293,13 @@ test('ADR MCP lifecycle, authorization, immutable history, private notifications
     await t.test('existing work tools preserve mention compatibility and notify only new recipients', async () => {
       const beforeViewer = (await listNotifications(viewer)).items.length;
       const beforeOther = (await listNotifications(other)).items.length;
-      const note = await writeWork(author, 'add_work_update', { itemId, kind: 'note', body: 'Synthetic note', mentionedPersonIds: ['viewer'] });
+      const note = await writeWork(author, 'add_work_update', { itemId, kind: 'note', body: 'Synthetic note', mentionedPersonIds: ['viewer', 'author'] });
+      const selfMentions = async () => (await listNotifications(author)).items.filter(value => value.updateId === note.id);
+      const selfMention = (await selfMentions())[0];
+      assert.ok(selfMention);
+      assert.equal(selfMention.actorId, 'author');
+      assert.equal(selfMention.recipientId, 'author');
+      assert.equal(selfMention.kind, 'mention');
       assert.equal((await listNotifications(viewer)).items.length, beforeViewer + 1);
       const firstNotice = (await listNotifications(viewer)).items.find(value => value.updateId === note.id)!;
       const protectedState = await readWork(identities[0]);
@@ -297,21 +308,27 @@ test('ADR MCP lifecycle, authorization, immutable history, private notifications
       assert.deepEqual(await readWork(identities[0]), protectedState);
       await writeWork(author, 'edit_work_update', { id: note.id, body: 'Old client text edit' });
       let update = (await readWork(identities[0])).updates.find(value => value.id === note.id)!;
-      assert.deepEqual(update.mentionedPersonIds, ['viewer']);
+      assert.deepEqual(update.mentionedPersonIds, ['author', 'viewer']);
+      assert.deepEqual(await selfMentions(), [selfMention], 'old clients preserve self mentions without resending');
       assert.equal((await listNotifications(viewer)).items.length, beforeViewer + 1);
-      await writeWork(author, 'edit_work_update', { id: note.id, body: 'Add mention', mentionedPersonIds: ['viewer', 'other'] });
+      await writeWork(author, 'edit_work_update', { id: note.id, body: 'Add mention', mentionedPersonIds: ['viewer', 'other', 'author'] });
+      assert.deepEqual(await selfMentions(), [selfMention], 'unchanged explicit self mention does not resend');
       assert.equal((await listNotifications(other)).items.length, beforeOther + 1);
       assert.equal((await listNotifications(viewer)).items.length, beforeViewer + 1);
       await writeWork(author, 'edit_work_update', { id: note.id, body: 'Remove mentions', mentionedPersonIds: [] });
       update = (await readWork(identities[0])).updates.find(value => value.id === note.id)!;
       assert.deepEqual(update.mentionedPersonIds, []);
-      for (const client of [viewer, other]) assert.ok(!(await listNotifications(client)).items.some(value => value.updateId === note.id));
+      for (const client of [viewer, other, author]) assert.ok(!(await listNotifications(client)).items.some(value => value.updateId === note.id));
+      await fail(author, 'set_notification_read', { id: selfMention.id, read: true }, 'not_found');
       await fail(viewer, 'set_notification_read', { id: firstNotice.id, read: true }, 'not_found');
-      await writeWork(author, 'edit_work_update', { id: note.id, body: 'Re-add viewer mention', mentionedPersonIds: ['viewer'] });
+      await writeWork(author, 'edit_work_update', { id: note.id, body: 'Re-add mentions', mentionedPersonIds: ['viewer', 'author'] });
+      assert.equal((await selfMentions()).length, 1);
+      assert.notEqual((await selfMentions())[0].id, selfMention.id);
       const readded = (await listNotifications(viewer)).items.filter(value => value.updateId === note.id);
       assert.equal(readded.length, 1);
       assert.notEqual(readded[0].id, firstNotice.id);
       await writeWork(author, 'delete_work_update', { id: note.id });
+      assert.deepEqual(await selfMentions(), []);
       assert.ok(!(await listNotifications(viewer)).items.some(value => value.updateId === note.id));
       assert.equal((await pool.query('SELECT id FROM simple_notifications WHERE update_id=$1', [note.id])).rowCount, 0);
       const original = await writeWork(author, 'add_work_update', { itemId, kind: 'note', body: 'Legacy no mentions' });

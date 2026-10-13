@@ -10,7 +10,7 @@ The workstream view reads the existing workspace snapshot. It does not add strea
 
 ## Directory and task views
 
-Directory search matches title or description, ignoring case and surrounding whitespace. Lead, linked goal, and attention filters combine. Sort choices are Name, Latest timeline, and Quiet count. Latest timeline ranks surviving task and subtask posts, not field edits. Quiet count sorts by the combined number of quiet tasks and subtasks while displaying those counts separately. Clear search and Clear filters return focus to the search field.
+Directory search matches title or description, ignoring case and surrounding whitespace. Lead, linked goal, and attention filters combine. Sort choices are Name, Latest timeline, and Quiet count. Latest timeline ranks task and subtask posts together with ADR history events, not ordinary task-field edits. Quiet count sorts by the combined number of quiet tasks and subtasks while displaying those counts separately. Clear search and Clear filters return focus to the search field.
 
 Directory search, filters, and sort survive section changes and saves during the mounted route, but reset on page reload. The activity window lasts while Workstreams is mounted and starts at 7 days when returning from another section. Opening a stream starts a fresh Attention task view rather than saving a personal default.
 
@@ -24,12 +24,14 @@ The review window starts at **7 days**, with **14** and **30 days** available. C
 
 | Count | Meaning |
 | --- | --- |
-| Updated | An item has a surviving timeline post within the selected rolling window, including its cutoff instant. Notes, blockers, and blocker resolutions count. Completed items can count. |
-| Quiet | An In progress (`doing`) item has no timeline post within the window. If it has never had a post, its creation time must be older than the cutoff. To do and Done items never count as Quiet. |
+| Updated | An item has a timeline entry within the selected rolling window, including its cutoff instant. Notes, blockers, blocker resolutions, and ADR history events count. Completed items can count. |
+| Quiet | An In progress (`doing`) item has no timeline entry within the window. If it has never had an entry, its creation time must be older than the cutoff. To do and Done items never count as Quiet. |
 | Blocked | An unfinished item has a nonempty current blocker. This is current state, not the number of blocker posts within the window. |
 | Attention | An unfinished item is Blocked, Quiet, or has a current, in-scope Needs decision assessment. Multiple reasons do not multiply the count. |
 
-An item's own timeline determines its Updated and Quiet counts. A child's post does not mark its parent Updated. Edits to task fields, task creation, stars, and ADR activity are not timeline posts. Editing a post does not change its creation time. Deleting a post makes the calculation fall back to surviving history, or item creation for Quiet when no posts remain.
+An item's own timeline determines its Updated and Quiet counts. A child's activity does not mark its parent Updated. Edits to task fields, task creation, and stars are not timeline entries. Editing a post does not change its creation time. Deleting a post makes the calculation fall back to surviving history, or item creation when no entries remain.
+
+ADR creation and approval lifecycle events appear alongside posts in the Updates panel and workstream history. They are read from the existing immutable ADR audit history, so older ADR events appear without a data backfill. Each event keeps its original actor, timestamp, and decision text, links to the ADR, and has no post Edit/Delete actions. Recorded approvals remain visibly distinct from verified approvals. ADR activity affects timeline ordering and Updated/Quiet counts but does not turn ADR content into AI assessment input.
 
 These are reasons to inspect work, not health, urgency, or completion forecasts. No update is not evidence that no work happened.
 

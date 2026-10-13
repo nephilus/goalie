@@ -1,7 +1,8 @@
-import type { Item, Snapshot, Update } from '../shared/work';
+import type { Item, Snapshot } from '../shared/work';
+import { compareTimelineEntries, mergedTimeline, type TimelineEntry } from './work-timeline';
 
 export type WorkSort = 'current' | 'latest_update' | 'due_date' | 'title';
-export type LatestWorkUpdate = { update: Update; timestamp: number };
+export type LatestWorkUpdate = { update: TimelineEntry; timestamp: number };
 export type WorkListView = {
   roots: Item[];
   visible: Item[];
@@ -15,8 +16,7 @@ export type WorkListView = {
 };
 
 function newer(candidate: LatestWorkUpdate, previous: LatestWorkUpdate | undefined): boolean {
-  return !previous || candidate.timestamp > previous.timestamp ||
-    (candidate.timestamp === previous.timestamp && candidate.update.id > previous.update.id);
+  return !previous || compareTimelineEntries(candidate.update, previous.update) < 0;
 }
 
 export function buildWorkListView(snapshot: Snapshot, matchingIds: ReadonlySet<string>, sort: WorkSort): WorkListView {
@@ -48,7 +48,7 @@ export function buildWorkListView(snapshot: Snapshot, matchingIds: ReadonlySet<s
     if (group) roots.push(...group);
   }
   const latestByItemId = new Map<string, LatestWorkUpdate>();
-  for (const update of snapshot.updates) {
+  for (const update of mergedTimeline(snapshot)) {
     const candidate = { update, timestamp: Date.parse(update.createdAt) };
     if (newer(candidate, latestByItemId.get(update.itemId))) latestByItemId.set(update.itemId, candidate);
   }

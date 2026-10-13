@@ -29,6 +29,10 @@ Work status is required (`todo`, `doing`, or `done` in the current work model). 
 
 Search and each filter category use any-of semantics; different categories intersect. Status, Tags, Decisions, Workstreams, linked Workstream goals, assignees, due timing, and Starred only compose with All/My work. Clear filters preserves search and navigation mode. Unknown IDs remain restrictive and removable. Stars are account-scoped PostgreSQL preferences: they do not advance the shared revision or reveal another account's stars.
 
+Work-list ordering is a display preference, separate from filters and saved assessment scope. **Current order** preserves workstream-major snapshot order; **Latest update** ranks parent groups across workstreams by their own or visible matching subtasks' newest surviving timeline post; **Due date** uses each item's own date, earliest first and undated last; **Title A–Z** uses casefolded titles with stable ID ties. Children remain nested. Rows show absolute latest-update times and name the subtask when it supplies the parent cue. Field edits and stars do not advance recency; editing a post retains its time, and deletion falls back to surviving history. Expanded details show only the item's own latest update.
+
+The Workstreams directory searches title and description, ignoring case and surrounding whitespace. Search and sort choices survive section changes and saves within the mounted route but reset on reload. Directory counts/actions still use the full workspace; Clear search restores input focus. Empty workspaces and searches with no matches have distinct states.
+
 Shared mutations run through the typed schemas in `app/shared/work.ts`, authorization and transaction logic in `app/server/work.server.ts`, and the web/MCP adapters. Every shared write supplies an expected workspace revision; stale writes fail closed rather than silently rebasing a draft. Deletions are exact-target and revision-checked, block dependent records instead of cascading, and retain audit history.
 
 ## Assessments and optional suggestions

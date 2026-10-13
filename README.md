@@ -7,6 +7,8 @@ Goalie is a self-hosted team-work application for organizing ordinary work acros
 - Goals linked to one or more workstreams.
 - Work items with a home workstream, required status, optional assignees, due dates, blockers, one-level subtasks, tags, and typed updates.
 - All work and My work views with search, status/tag/workstream/goal/assignee filters, and private per-account stars.
+- Workstreams-directory search by title or description, with result counts and a clear-search action.
+- Work-list sorting by current order, latest timeline update, due date, or title. Latest-update cues identify visible subtask activity without flattening the hierarchy.
 - Admin-only editing of existing People records. Names and roles are editable; email is immutable. There is no People add/delete UI.
 - Optional Goalie Suggestions for unsaved work and workstream drafts, plus scoped saved-work assessments. The bottom-left **AI assistance** switch controls all of these UI features together, defaults off, and remembers your choice for your account in this browser. **Debug mode** sits alongside it. Suggestions never save automatically or assign people; manual work remains usable with AI off or unavailable.
 - A local stdio MCP server for explicitly provisioned principals. It is not a hosted MCP endpoint.

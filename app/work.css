@@ -155,6 +155,20 @@ button:disabled { cursor: not-allowed; }
 .work-list-surface, .manage-surface { padding: 0; }
 .surface-heading { align-items: flex-start; display: flex; gap: 16px; justify-content: space-between; margin-bottom: 20px; }
 .surface-heading p { color: var(--muted-foreground); font-size: .875rem; line-height: 1.5; margin: 6px 0 0; max-width: 70ch; }
+.directory-search { display: grid; gap: 8px; margin-bottom: 24px; }
+.directory-search-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; }
+.directory-search-controls .search-field { flex: 1 1 240px; }
+.directory-search-controls input, .directory-search-controls > button { min-height: 44px; }
+.directory-search .field-hint { margin: 0; }
+.work-list-heading { align-items: center; flex-wrap: wrap; }
+.work-sort { align-items: center; display: flex; flex: 0 1 auto; gap: 12px; max-width: 100%; }
+.work-sort label { white-space: nowrap; }
+.work-sort [role="combobox"] { min-height: 44px; width: 180px; }
+.work-latest-summary { overflow-wrap: anywhere; white-space: normal; }
+@media (max-width: 600px) {
+  .work-sort { align-items: stretch; flex: 1 1 100%; flex-direction: column; gap: 8px; }
+  .work-sort [role="combobox"] { width: 100%; }
+}
 @keyframes accordion-down { from { height: 0; } to { height: var(--radix-accordion-content-height); } }
 @keyframes accordion-up { from { height: var(--radix-accordion-content-height); } to { height: 0; } }
 .item-accordions { border-bottom: 0; }

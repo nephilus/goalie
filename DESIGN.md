@@ -8,7 +8,7 @@ The UI uses existing shadcn/Radix primitives in `app/components/ui` and Lucide i
 
 ## Information architecture
 
-The work surface provides All work and My work, plus Goals, Workstreams, Shared tags, and People. Work items belong to one workstream and may have one level of subtasks. Goals link to workstreams many-to-many; an item's workstream goals are context, not individual contribution claims. Tags are reusable categories: a scoped tag belongs to one workstream, while **Common** means available to every workstream.
+The work surface provides All work and My work, plus Goals, Workstreams, Shared tags, People, and ADRs under Manage. Work items belong to one workstream and may have one level of subtasks. Goals link to workstreams many-to-many; an item's workstream goals are context, not individual contribution claims. Tags are reusable categories: a scoped tag belongs to one workstream, while **Common** means available to every workstream.
 
 Rows expose typed Updates and Edit actions, contextual Add subtask/New task/New workstream actions where permitted, and private Star/Unstar state. Contextual creation opens a complete unsaved draft with the parent, workstream, or goal preselected. Only explicit Save/Create persists it. A completed root must be reopened before adding a subtask, and children cannot have grandchildren.
 
@@ -45,7 +45,7 @@ Draft Goalie Suggestions can fill only reviewable unsaved workstream, linked-goa
 
 ## Routes and adapters
 
-`app/routes.ts` maps `/` to the work UI, `/api/*` to the work API, `/auth/*` to OIDC login/callback/logout, and `/health` to readiness. The current API resources are `/api/work`, `/api/work/assist`, `/api/work/assist/workstream`, `/api/work/assessments`, `/api/work/assessments/preference`, and `/api/work/assessments/scope`. Web writes require OIDC session authentication, same-origin/CSRF checks, and service authorization. The stdio MCP launcher (`scripts/mcp.ts`) requires `GOALIE_MCP_PERSON_ID`, reads that person from PostgreSQL before serving, and rechecks the current role during calls. It has no network listener and is not a substitute for delegated network authentication.
+`app/routes.ts` maps `/` to the work UI, `/api/*` to the work API, `/auth/*` to OIDC login/callback/logout, and `/health` to readiness. The current API resources include `/api/work`, its assistance and assessment paths, `/api/work/adrs` (including record and history reads), `/api/work/notifications`, and `/api/work/notifications/read`. The [browser API reference](docs/adr-browser.md) defines ADR query and command contracts. Web writes require OIDC session authentication, same-origin/CSRF checks, and service authorization. The stdio MCP launcher (`scripts/mcp.ts`) requires `GOALIE_MCP_PERSON_ID`, reads that person from PostgreSQL before serving, and rechecks the current role during calls. It has no network listener and is not a substitute for delegated network authentication.
 
 The active MCP tools cover identity and bounded reads; create/update/delete for goals, workstreams, work, tags, and operator-managed People; typed update operations; private stars; and read-only draft suggestions. Clients should read first and pass the returned revision to mutations. Tool annotations do not authorize destructive actions; clients must apply their own exact-target approval policy.
 
@@ -55,8 +55,8 @@ Legacy tables and historical evaluation adapters remain in the repository and mi
 
 ## ADRs and notifications
 
-The [ADR and work-control specification](docs/adr-spec.md) defines task-owned decisions, approval identity rules, an extensible private inbox, mentions, and the agreed browser controls. The typed ADR service and [MCP operations](docs/mcp.md) implement the backend; the ADR timeline overlay, Manager registry, inbox and mention UI are still browser work. The existing `Decisions` filter refers to AI assessments, not ADR approval state.
+The [ADR and work-control specification](docs/adr-spec.md) defines task-owned decisions, approval identity rules, a private inbox, mentions, and the browser controls. The typed ADR service is shared by [MCP operations](docs/mcp.md) and the [browser API](docs/adr-browser.md). The browser provides compact ADR entries in Updates, a Manage registry, a header inbox, and mention pickers. Create, edit, review, and history use overlays rather than a permanently expanded decision form. The existing `Decisions` filter refers to AI assessments, not ADR approval state.
 
 ADR writes share the workspace revision lock with ordinary work. Audit snapshots retain prior content and approval attribution. Plain-name approvals are explicitly recorded; known people approve only under their nominated current editor/admin principal. Notification read state is account-private and does not change that shared revision. Timeline mentions use existing update commands and preserve author/editor authorization. Neither ADR text nor mention IDs are added to AI assessment inputs.
 
-Future status-menu actions must preserve hierarchy validation without cascading changes. Hide completed must be a discreet checkbox that resets to checked on reload, not an active-filter chip. See the specification for defensive parent context, accessibility, and visual-review requirements.
+Status-menu actions preserve hierarchy validation without cascading changes. Hide completed is a discreet checkbox that resets to checked on reload, not an active-filter chip. A hint explains when a selected Done status is also hidden by the checkbox. Completed parents remain available as context for matching unfinished children. See the specification for accessibility and browser acceptance requirements.

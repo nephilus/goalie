@@ -1,18 +1,18 @@
 # ADRs, approvals, notifications, and work controls
 
-This specification records the agreed product behavior. The ADR service and MCP contract are implemented separately from the browser UI. See [MCP reference](mcp.md) for callable operations and [development](development.md) for isolated migration and testing. Do not treat this document as permission to mutate a workspace or deploy.
+This specification records the agreed product behavior across the shared service, MCP tools, and browser UI. See the [MCP reference](mcp.md), [browser API](adr-browser.md), and [development guide](development.md). This document is not permission to mutate a workspace or deploy.
 
 ## Delivery boundaries
 
-| Area | This change | Browser work still required |
+| Area | Shared backend | Browser interface |
 | --- | --- | --- |
-| ADRs | Typed persistence, search, task ownership, audit history, approval commands, MCP tools | Timeline entry, authoring/detail overlay, Manager registry |
-| Notifications | Private persisted inbox, approval and mention events, read/unread operations through MCP | Inbox control, source navigation, mention picker |
-| Timeline mentions | Explicit person IDs on the existing update commands, atomic notification delivery | Mention authoring and rendering |
-| Status menu | Specification only; existing work mutation remains available | Three-dot actions |
-| Hide completed | Specification only | Discreet default-checked checkbox |
+| ADRs | Typed persistence, search, task ownership, audit history, approval commands, MCP tools | Compact task entries, authoring/detail overlay, Manage registry |
+| Notifications | Private persisted inbox, approval and mention events, read/unread operations | Header inbox, source navigation, read/unread controls |
+| Timeline mentions | Explicit person IDs on existing update commands, atomic notification delivery | Mention selection and rendering on new and edited posts |
+| Status menu | Existing revision-checked work mutation | Three-dot actions for the selected task or subtask |
+| Hide completed | No persisted preference or data mutation | Discreet default-checked checkbox, reset on reload |
 
-There is no new HTTP ADR endpoint, approval email, push service, deployment, automatic migration, or automatic change to task status in this scope. Existing AI assessment inputs are not expanded to include ADR contents or notification identities.
+The browser uses authenticated HTTP ADR and notification endpoints. There is no approval email, push service, automatic migration, or automatic change to task status. Existing AI assessment inputs are not expanded to include ADR contents or notification identities. Source availability does not imply deployment.
 
 ## ADR content and ownership
 
@@ -22,7 +22,7 @@ Each saved record requires seven nonempty fields, corresponding to:
 
 > In the context of **context**, facing **concern**, we decided for **decision** and neglected **alternatives**, to achieve **consequences**, accepting **downsides**, because **rationale**.
 
-A full-document HTTP(S) link is optional. It is stored, not fetched. In this backend contract, a draft is a saved complete decision awaiting review, not storage for an incomplete form. Unsaved partial text belongs in the future browser form, with discard protection.
+A full-document HTTP(S) link is optional. It is stored, not fetched. In this backend contract, a draft is a saved complete decision awaiting review, not storage for an incomplete form. Unsaved partial text stays in the browser form, with discard protection.
 
 There is one requester and one approver. Each is an existing person reference or a plain name. The requester defaults to the authenticated creator when creating an ADR and can then be changed, including when recording on behalf of a team. The authenticated creator is retained separately and is never overwritten by changing the requester.
 
@@ -46,7 +46,7 @@ Role revocation fails closed: a nominee demoted to viewer cannot approve, and mu
 
 Approval requests and mentions use one notification model. Each notification belongs to its recipient. Reads and read/unread changes cannot target another person's inbox, including from an admin principal. Read state is private and does not advance the shared workspace revision.
 
-The backend persists notifications in the same transaction as the source mutation. No email or external delivery is involved. Source identifiers include the owning item and ADR or timeline-update ID, so the future UI can navigate without guessing from text.
+The backend persists notifications in the same transaction as the source mutation. No email or external delivery is involved. Source identifiers include the owning item and ADR or timeline-update ID, so the UI can navigate without guessing from text.
 
 Mentions explicitly name existing person IDs in ADRs and timeline posts. Plain names do not receive notifications. The backend does not infer recipients from arbitrary `@name` text. On edit, newly added recipients are notified; unchanged recipients are not notified again. Self-notifications are suppressed. Removing a mention invalidates its outstanding notification, and a later re-addition can notify again. Deleting a timeline post removes its associated notifications. Obsolete approval requests are invalidated when review ends or a decision changes.
 
@@ -70,7 +70,7 @@ Expose **Mark in progress**, **Mark done**, and **Move to todo** on tasks and su
 
 Use a discreet **Hide completed** checkbox, checked on first load and reset to checked on every reload. Do not persist an unchecked preference across reloads. It is a display control, not an active filter chip, and should not trigger active-filter highlighting.
 
-Hide completed rows, but retain a completed parent as context if unfinished children need it to remain discoverable. The current write service prevents that state in normal operation; the display rule is defensive for imported or historical data, not authorization to bypass hierarchy validation. Interaction with explicitly selected status filters must be resolved in browser design without silently hiding unfinished work or creating misleading empty results.
+Hide completed rows, but retain a completed parent as context if unfinished children need it to remain discoverable. The current write service prevents that state in normal operation; the display rule is defensive for imported or historical data, not authorization to bypass hierarchy validation. When an explicit status filter includes Done while Hide completed is checked, show a nearby hint to uncheck the display control. Do not silently change the selected filters or the checkbox.
 
 ## Acceptance checks
 
@@ -88,6 +88,8 @@ The browser work additionally needs keyboard/mobile checks, a real approval-requ
 | Private notifications, read state, mention edits and old-client compatibility | `tests/adr-integration.test.ts` inbox and work-update scenarios |
 | Historical references, migration repeatability, database identity constraints | `tests/adr-service.test.ts` deletion and SQL checks |
 | Populated pre-ADR upgrade preserves records, revision, timestamps and attribution | `tests/adr-upgrade.test.ts` real migration replay |
+| Browser session attribution, CSRF/origin rejection, strict HTTP queries/bodies, approval and inbox privacy | `tests/adr-http.test.ts` authenticated route handlers |
+| Completion visibility, retained parent context, applicable non-cascading status choices | `tests/work-display.test.ts` pure display scenarios |
 | Existing hierarchy, work permissions, updates and stars | `tests/work-integration.test.ts` |
 
 These checks run against synthetic records in a disposable database. They do not exercise a live workspace, prove an ADR browser experience, or qualify a deployed release.

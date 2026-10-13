@@ -534,3 +534,14 @@ body, .work-header, .work-sidebar, .surface, .work-panel, .filterbar, .assist-pa
 @media (min-width: 601px) and (max-width: 899px) {
   .filter-actions { justify-content: space-between; }
 }
+
+.work-display-controls { align-items: center; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.hide-completed { align-items: center; color: var(--muted-foreground); cursor: pointer; display: inline-flex; font-size: .875rem; font-weight: 400; gap: 8px; min-height: 44px; white-space: nowrap; }
+.work-display-hint { color: var(--muted-foreground); font-size: .875rem; margin: 0; padding: 0 20px 16px; }
+.timeline-mentions { color: var(--muted-foreground); font-size: .875rem; margin: 8px 0; overflow-wrap: anywhere; }
+.update-note[id] { scroll-margin-block: 24px; }
+.update-note[id]:focus { outline: 2px solid var(--ring); outline-offset: 4px; }
+.work-discard-confirmation { z-index: 80; }
+@media (max-width: 600px) {
+  .work-display-controls { justify-content: space-between; width: 100%; }
+}

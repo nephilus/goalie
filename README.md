@@ -55,8 +55,8 @@ Goalie is work tracking, not an autonomous coordination system, portfolio suite,
 
 No public hosted instance, registry image, release, or production security certification is claimed by this repository preparation. Source publication and image publication require the owner setup and approvals in [docs/releases.md](docs/releases.md).
 
-## ADR backend and MCP
+## ADRs, approvals, and notifications
 
 The ADR backend supports structured task decisions, requester/approver identities, recorded and principal-verified approvals, retained audit history, registry search, and private approval/mention notifications. MCP exposes these operations; timeline-update commands also accept explicit mention recipients. Run migrations explicitly against the intended instance before using the new source. See the [MCP reference](docs/mcp.md).
 
-The browser ADR overlay, Manager registry, notification inbox, mention picker, status-menu additions, and Hide completed checkbox are specified but not implemented by this backend change. The [feature specification](docs/adr-spec.md) separates those UI requirements from callable backend behavior. No live deployment or migration is implied.
+The browser provides ADRs under Manage and in task Updates, with overlay authoring, review, and history. The header inbox links approval requests and mentions to their source. Timeline posts and ADRs support explicit mention selection. Task menus offer non-cascading status changes; a discreet Hide completed checkbox resets to checked on reload. See the [feature specification](docs/adr-spec.md) and [browser API](docs/adr-browser.md). Source availability does not imply a live deployment or migration.

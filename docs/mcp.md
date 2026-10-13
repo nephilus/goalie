@@ -46,7 +46,7 @@ For an ADR, verified approval means the configured principal is the nominated ap
 
 Work-update `kind` is `note`, `blocker`, or `blocker_resolved`. Body is nonempty and at most 10,000 characters; blocker bodies are limited to 4,000. A blocker sets current blocker text, blocker resolution clears it, and a note leaves it unchanged. Editing/deleting blocker history recomputes the current blocker as appropriate.
 
-`mentionedPersonIds` contains up to 100 distinct existing person IDs. Omission on create means no mentions. Omission on edit preserves existing mentions, while `[]` clears them. Only newly added recipients receive notifications, excluding the acting account. Text such as `@Jane` alone does not notify anyone. The future UI must resolve selections to IDs. Returned work updates include the persisted mention IDs. These commands use the existing shared web service as well as MCP, with existing authorization unchanged.
+`mentionedPersonIds` contains up to 100 distinct existing person IDs. Omission on create means no mentions. Omission on edit preserves existing mentions, while `[]` clears them. Only newly added recipients receive notifications, excluding the acting account. Text such as `@Jane` alone does not notify anyone. The browser mention picker resolves selections to IDs. Returned work updates include the persisted mention IDs. These commands use the existing shared web service as well as MCP, with existing authorization unchanged.
 
 ## ADR input
 
@@ -126,7 +126,7 @@ For an external plain-name approver, steps 1–3 are the same but no account not
 | `list_notifications` | Optional `unreadOnly`, `cursor`, `limit` | `{revision, items, nextCursor}` for the configured account only, newest first. Invalidated events are excluded. |
 | `set_notification_read` | `id`, `read` boolean | `{notification}` for an existing, non-invalidated notification belonging to the configured account. |
 
-Kinds are `approval_requested`, `approval_result`, and `mention`. Events contain `actorId`, `recipientId`, `itemId`, and exactly one of `adrId`/`updateId`, plus timestamps. These are source references, not yet browser deep links. The upcoming UI must implement navigation.
+Kinds are `approval_requested`, `approval_result`, and `mention`. Events contain `actorId`, `recipientId`, `itemId`, and exactly one of `adrId`/`updateId`, plus timestamps. These are source references, not standalone URLs. The browser inbox uses them to open the ADR overlay or the owning task's timeline entry.
 
 Approval results notify an existing-person requester unless they performed the action themselves. If the requester is a plain name, there is no account inbox for that identity. Mentions and approval requests suppress self-notifications. Removing mentions or ending/changing a pending review invalidates obsolete notifications. Re-adding a removed mention creates a new event. Deleting a timeline post removes its notifications. Reading or marking an event never approves the ADR.
 
@@ -140,4 +140,4 @@ Approval results notify an existing-person requester unless they performed the a
 - `entity_in_use`: work/person deletion would break references or retained audit history.
 - Missing tables after source upgrade: an operator must review and run migrations on the intended instance. Connection checks must not mutate the database.
 
-Tool schemas, implementation, and tests are authoritative: `app/shared/adr.ts`, `app/server/adr.server.ts`, `app/shared/work.ts`, `app/server/work.server.ts`, `app/mcp/server.ts`, and `tests/adr*.test.ts`. Browser behavior and remaining UI acceptance are recorded in [the feature specification](adr-spec.md).
+Tool schemas, implementation, and tests are authoritative: `app/shared/adr.ts`, `app/server/adr.server.ts`, `app/shared/work.ts`, `app/server/work.server.ts`, `app/mcp/server.ts`, and `tests/adr*.test.ts`. Browser behavior is recorded in [the feature specification](adr-spec.md); its session-authenticated transport is documented in [the browser API](adr-browser.md).

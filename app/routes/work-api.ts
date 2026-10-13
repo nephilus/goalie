@@ -7,8 +7,31 @@ import { readWorkAssessments, assessWorkItem, setWorkAssessmentsEnabled, setWork
 import { assistRequestSchema, workstreamAssistRequestSchema } from '../shared/work-assist';
 import { assessmentRunRequestSchema, assessmentScopeRequestSchema } from '../shared/work-assessment';
 import { commandRequestSchema } from '../shared/work';
+import { adrCommandRequestSchema, adrHistoryQuerySchema, adrListQuerySchema, adrSchema, notificationListQuerySchema, workNotificationSchema } from '../shared/adr';
+import { executeAdr, listAdrs, listNotifications, readAdr, readAdrHistory, setNotificationRead } from '../server/adr.server';
 const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 const json = (data: unknown, status = 200, extraHeaders: Record<string, string> = {}) => Response.json(data, { status, headers: { ...headers, ...extraHeaders } });
+// Parse transport scalars explicitly: coercion would accept empty limits and truthy "false".
+function adrQuery(url: URL, allowed: readonly string[]): Record<string, unknown> {
+  const result: Record<string, unknown> = Object.create(null);
+  for (const [key, value] of url.searchParams) {
+    if (!allowed.includes(key) || Object.hasOwn(result, key)) throw new WorkError('Unsupported or duplicate query parameter.', 422, 'invalid_request');
+    if (key === 'limit') {
+      if (!/^[1-9]\d{0,2}$/.test(value)) throw new WorkError('Invalid page limit.', 422, 'invalid_request');
+      result[key] = Number(value);
+    } else if (key === 'unreadOnly') {
+      if (value !== 'true' && value !== 'false') throw new WorkError('Use true or false for unreadOnly.', 422, 'invalid_request');
+      result[key] = value === 'true';
+    } else result[key] = value;
+  }
+  return result;
+}
+function adrPathId(segment: string): string {
+  let decoded: string;
+  try { decoded = decodeURIComponent(segment); } catch { throw new WorkError('Invalid ADR ID.', 422, 'invalid_request'); }
+  return adrSchema.shape.id.parse(decoded);
+}
+const notificationReadRequestSchema = z.object({ id: workNotificationSchema.shape.id, read: z.boolean() }).strict();
 function assessmentItemId(url: URL): string | undefined {
   const keys = [...url.searchParams.keys()];
   if (keys.some(key => key !== 'itemId')) throw new WorkError('Unsupported assessment query parameter.', 422, 'invalid_request');
@@ -46,8 +69,23 @@ async function body(request: Request): Promise<unknown> {
 export async function loader({ request }: { request: Request }): Promise<Response> {
   try {
     const url = new URL(request.url);
-    if (url.pathname !== '/api/work' && url.pathname !== '/api/work/assessments') return json({ error: 'Not found.', code: 'not_found' }, 404);
+    const adrMatch = /^\/api\/work\/adrs\/([^/]+)(\/history)?$/.exec(url.pathname);
+    if (url.pathname !== '/api/work' && url.pathname !== '/api/work/assessments' && url.pathname !== '/api/work/adrs' && url.pathname !== '/api/work/notifications' && !adrMatch) return json({ error: 'Not found.', code: 'not_found' }, 404);
     const auth = await requireAuth(request);
+    if (url.pathname === '/api/work/adrs') {
+      const query = adrListQuerySchema.parse(adrQuery(url, Object.keys(adrListQuerySchema.shape)));
+      return json({ data: await listAdrs(query, auth.person), user: auth.person, csrfToken: auth.csrfToken });
+    }
+    if (url.pathname === '/api/work/notifications') {
+      const query = notificationListQuerySchema.parse(adrQuery(url, Object.keys(notificationListQuerySchema.shape)));
+      return json({ data: await listNotifications(query, auth.person), user: auth.person, csrfToken: auth.csrfToken });
+    }
+    if (adrMatch) {
+      const adrId = adrPathId(adrMatch[1]);
+      const query = adrQuery(url, adrMatch[2] ? ['limit', 'cursor'] : []);
+      const data = adrMatch[2] ? await readAdrHistory(adrHistoryQuerySchema.parse({ ...query, adrId }), auth.person) : await readAdr(adrId, auth.person);
+      return json({ data, user: auth.person, csrfToken: auth.csrfToken });
+    }
     if (url.pathname === '/api/work/assessments') {
       const data = await readWorkAssessments(auth.person, assessmentItemId(url));
       return json({ data, user: auth.person, csrfToken: auth.csrfToken });
@@ -60,7 +98,19 @@ export async function action({ request }: { request: Request }): Promise<Respons
     if (request.method !== 'POST') return json({ error: 'Use POST.', code: 'method_not_allowed' }, 405);
     const auth = await requireAuth(request);
     await requireCsrf(request, auth);
-    const pathname = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    if (pathname === '/api/work/adrs') {
+      adrQuery(url, []);
+      const data = await executeAdr(adrCommandRequestSchema.parse(await body(request)), auth.person);
+      return json({ data, user: auth.person, csrfToken: auth.csrfToken });
+    }
+    if (pathname === '/api/work/notifications/read') {
+      adrQuery(url, []);
+      const input = notificationReadRequestSchema.parse(await body(request));
+      const data = await setNotificationRead(input.id, input.read, auth.person);
+      return json({ data, user: auth.person, csrfToken: auth.csrfToken });
+    }
     if (pathname === '/api/work/assessments/scope') {
       const requestScope = assessmentScopeRequestSchema.parse(await body(request));
       return json({ data: await setWorkAssessmentScope(auth.person, requestScope.scope) });

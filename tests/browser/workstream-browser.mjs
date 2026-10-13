@@ -136,7 +136,7 @@ try {
     await choose('Sort workstreams', 'Latest timeline');
     const snapshot = (await (await page.request.get(`${base.origin}/api/work`)).json()).data;
     const latest = new Map(snapshot.workstreams.map(stream => [stream.id, -Infinity]));
-    for (const update of snapshot.updates) {
+    for (const update of [...snapshot.updates, ...(snapshot.adrActivities ?? [])]) {
       const item = snapshot.items.find(item => item.id === update.itemId);
       if (item) latest.set(item.workstreamId, Math.max(latest.get(item.workstreamId), Date.parse(update.createdAt)));
     }
@@ -154,7 +154,7 @@ try {
     const snapshot = (await (await page.request.get(`${base.origin}/api/work`)).json()).data;
     const items = snapshot.items.filter(item => item.workstreamId === 'acceptance-boundaries');
     const cutoff = Date.now() - 7 * 86400000;
-    const latest = item => snapshot.updates.filter(update => update.itemId === item.id).map(update => Date.parse(update.createdAt)).sort((a,b) => b-a)[0];
+    const latest = item => [...snapshot.updates, ...(snapshot.adrActivities ?? [])].filter(update => update.itemId === item.id).map(update => Date.parse(update.createdAt)).sort((a,b) => b-a)[0];
     for (const [label, selected] of [
       ['Updated', items.filter(item => latest(item) >= cutoff)],
       ['Quiet', items.filter(item => item.status === 'doing' && (latest(item) ?? Date.parse(item.createdAt)) < cutoff)],

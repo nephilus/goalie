@@ -114,6 +114,12 @@ button:disabled { cursor: not-allowed; }
 .mobile-nav-dialog .sidebar-mobile-heading { align-items: center; display: flex; justify-content: flex-end; margin: -46px 0 18px; }
 .mobile-nav-dialog .sidebar-mobile-heading strong { display: none; }
 
+.sidebar-disclosure > div { border: 0; }
+nav > .sidebar-disclosure { margin-top: 16px; }
+.sidebar-disclosure-trigger { border-radius: 8px; color: var(--muted-foreground); font-size: .875rem; font-weight: 600; min-height: 44px; padding: 8px 9px; }
+.sidebar-disclosure-trigger:hover { background: var(--card); color: var(--foreground); text-decoration: none; }
+.sidebar-disclosure-trigger:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.sidebar-disclosure-content { padding: 0; }
 .sidebar-footer { border-top: 1px solid var(--border); display: grid; gap: 4px; margin-top: auto; padding: 12px 0 0; }
 .sidebar-default-view { display: grid; gap: 8px; padding: 4px 9px 12px; min-width: 0; }
 .sidebar-default-view label { color: var(--muted-foreground); font-size: .875rem; }

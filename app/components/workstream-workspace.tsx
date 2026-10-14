@@ -11,10 +11,12 @@ import { buildWorkstreamView, countItems, filterWorkstreamDirectory, retainAtten
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import '../workstream.css';
 
 export type WorkstreamWorkspaceProps = {
+  compact?: boolean;
   snapshot: Snapshot;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -49,7 +51,7 @@ function MetricIcon({ metric }: { metric: keyof typeof metricIcons }) {
   return <Icon className="ws-metric-icon" aria-hidden="true" />;
 }
 function Metrics({ summary, clockReady }: { summary: WorkstreamSummary; clockReady: boolean }) {
-  return <dl className="ws-metrics">{(['updated', 'quiet', 'blocked'] as const).map(metric => <div key={metric}><dt className={`ws-metric-${metric}`}><MetricIcon metric={metric} />{metric === 'updated' ? 'Updated' : metric === 'quiet' ? 'Quiet' : 'Blocked'}</dt><dd>{clockReady || metric === 'blocked' ? <Counts counts={summary[metric]} /> : <span className="ws-muted">Calculating…</span>}</dd></div>)}</dl>;
+  return <dl className="ws-metrics">{(['updated', 'quiet', 'blocked'] as const).map(metric => <div key={metric}><dt className={`ws-metric-${metric}${countItems(summary[metric]) === 0 ? ' ws-metric-zero' : ''}`}><MetricIcon metric={metric} />{metric === 'updated' ? 'Updated' : metric === 'quiet' ? 'Quiet' : 'Blocked'}</dt><dd>{clockReady || metric === 'blocked' ? <Counts counts={summary[metric]} /> : <span className="ws-muted">Calculating…</span>}</dd></div>)}</dl>;
 }
 function StreamMeta({ stream, snapshot }: { stream: Workstream; snapshot: Snapshot }) {
   const goals = stream.goalIds.map(id => snapshot.goals.find(goal => goal.id === id)?.title ?? 'Unknown goal');
@@ -57,6 +59,8 @@ function StreamMeta({ stream, snapshot }: { stream: Workstream; snapshot: Snapsh
 }
 
 export function WorkstreamWorkspace(props: WorkstreamWorkspaceProps) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const workspaceClass = `ws-workspace${props.compact ? ' ws-compact' : ''}`;
   const [days, setDays] = useState<ReviewWindow>(7);
   const [now, setNow] = useState<number | null>(null);
   const [localDirectory, setLocalDirectory] = useState<DirectoryFilters>(initialDirectory);
@@ -67,6 +71,10 @@ export function WorkstreamWorkspace(props: WorkstreamWorkspaceProps) {
     props.onDirectoryChange?.(value);
   }
   const directorySearch = useRef<HTMLInputElement>(null);
+  const filtersTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!props.compact) setFiltersOpen(false);
+  }, [props.compact]);
   const decisionAvailable = props.aiAvailable && props.assessment.enabled;
   useEffect(() => {
     if (!decisionAvailable && directory.attention === 'decision') setDirectory({ ...directory, attention: 'all' });
@@ -83,10 +91,11 @@ export function WorkstreamWorkspace(props: WorkstreamWorkspaceProps) {
   const selected = view.summaries.find(summary => summary.stream.id === props.selectedId);
   const windowControl = <Choice label="Activity window" value={String(days)} onChange={value => setDays(Number(value) as ReviewWindow)} options={[7, 14, 30].map(value => ({ value: String(value), label: `Last ${value} days` }))} />;
   const setFilter = <K extends keyof DirectoryFilters>(key: K, value: DirectoryFilters[K]) => setDirectory(previous => ({ ...previous, [key]: value }));
+  const breadcrumb = (title: string) => <h1 id="page-title" className="ws-compact-title"><button type="button" onClick={() => props.onSelect(null)}>Workstreams</button><span aria-hidden="true">/</span><span aria-current="page">{title}</span></h1>;
   if (props.selectedId !== null) {
-    if (!selected) return <section className="ws-workspace"><Button variant="ghost" onClick={() => props.onSelect(null)}><ArrowLeft />Workstreams</Button><div className="ws-empty"><h2>Workstream not found</h2><p>It may have been removed. Return to the directory to choose another workstream.</p></div></section>;
-    return <section className="ws-workspace"><Button variant="ghost" className="ws-back" onClick={() => props.onSelect(null)}><ArrowLeft />Workstreams</Button>
-      <header className="ws-heading"><div><h2>{selected.stream.title}</h2><StreamMeta stream={selected.stream} snapshot={props.snapshot} /></div><div className="ws-actions">{props.canEdit && <><Button variant="outline" onClick={event => props.onEditStream(selected.stream, event.currentTarget)}>Edit workstream</Button><Button onClick={event => props.onAddTask(selected.stream, event.currentTarget)}><Plus />Add task</Button></>}</div></header>
+    if (!selected) return <section className={workspaceClass}>{props.compact ? breadcrumb('Workstream not found') : <Button variant="ghost" onClick={() => props.onSelect(null)}><ArrowLeft />Workstreams</Button>}<div className="ws-empty">{!props.compact && <h2>Workstream not found</h2>}<p>It may have been removed. Return to the directory to choose another workstream.</p></div></section>;
+    return <section className={workspaceClass}>{!props.compact && <Button variant="ghost" className="ws-back" onClick={() => props.onSelect(null)}><ArrowLeft />Workstreams</Button>}
+      <header className="ws-heading"><div>{props.compact ? breadcrumb(selected.stream.title) : <h2>{selected.stream.title}</h2>}<StreamMeta stream={selected.stream} snapshot={props.snapshot} /></div><div className="ws-actions">{props.canEdit && <><Button variant="outline" onClick={event => props.onEditStream(selected.stream, event.currentTarget)}>Edit workstream</Button><Button onClick={event => props.onAddTask(selected.stream, event.currentTarget)}><Plus />Add task</Button></>}</div></header>
       {selected.stream.description && <p className="ws-description">{selected.stream.description}</p>}
       <div className="ws-overview"><div><Counts counts={selected.total} /><Metrics summary={selected} clockReady={now !== null} /></div>{windowControl}</div>
       <Review key={selected.stream.id} {...props} summary={selected} view={view} days={days} clockReady={now !== null} />
@@ -94,15 +103,19 @@ export function WorkstreamWorkspace(props: WorkstreamWorkspaceProps) {
   }
   const effectiveDirectory = !decisionAvailable && directory.attention === 'decision' ? { ...directory, attention: 'all' as const } : directory;
   const visible = filterWorkstreamDirectory(view, props.snapshot, effectiveDirectory);
-  return <section className="ws-workspace" aria-label="Workstream directory">
-    <header className="ws-heading ws-directory-heading">{windowControl}</header>
-    <div className="ws-directory-filters"><label className="ws-choice ws-search"><span>Search workstreams</span><Input ref={directorySearch} aria-label="Search workstreams" placeholder="Search title or description" value={directory.search} maxLength={200} onChange={event => setFilter('search', event.target.value)} /></label>
+  const activeFilterCount = Number(Boolean(directory.leadId)) + Number(Boolean(directory.goalId)) + Number(effectiveDirectory.attention !== 'all');
+  const filterChoices = <>
       <Choice label="Workstream lead" value={directory.leadId || 'all'} onChange={value => setFilter('leadId', value === 'all' ? '' : value)} options={[{ value: 'all', label: 'All leads' }, ...props.snapshot.people.map(person => ({ value: person.id, label: person.name }))]} />
       <Choice label="Linked goal" value={directory.goalId || 'all'} onChange={value => setFilter('goalId', value === 'all' ? '' : value)} options={[{ value: 'all', label: 'All goals' }, ...props.snapshot.goals.map(goal => ({ value: goal.id, label: goal.title }))]} />
       <Choice label="Workstream attention" value={effectiveDirectory.attention} onChange={value => setFilter('attention', value as DirectoryFilters['attention'])} options={[{ value: 'all', label: 'Any attention' }, { value: 'attention', label: 'Needs attention' }, { value: 'blocked', label: 'Blocked' }, { value: 'quiet', label: 'Quiet' }, ...(decisionAvailable ? [{ value: 'decision', label: 'Jev decision needed' }] : [])]} />
       <Choice label="Sort workstreams" value={directory.sort} onChange={value => setFilter('sort', value as DirectoryFilters['sort'])} options={[{ value: 'name', label: 'Name' }, { value: 'latest', label: 'Latest timeline' }, { value: 'quiet', label: 'Quiet count' }]} />
+    </>;
+  return <section className={workspaceClass} aria-label="Workstream directory">
+    {!props.compact && <header className="ws-heading ws-directory-heading">{windowControl}</header>}
+    <div className={props.compact ? 'ws-compact-toolbar' : 'ws-directory-filters'}><label className="ws-choice ws-search"><span>Search workstreams</span><Input ref={directorySearch} aria-label="Search workstreams" placeholder="Search title or description" value={directory.search} maxLength={200} onChange={event => setFilter('search', event.target.value)} /></label>
+      {props.compact ? <>{windowControl}<Dialog open={filtersOpen} onOpenChange={setFiltersOpen}><DialogTrigger asChild><Button ref={filtersTrigger} variant="outline">Filters ({activeFilterCount})</Button></DialogTrigger><DialogContent className="ws-filter-dialog" aria-describedby={undefined} onCloseAutoFocus={event => { event.preventDefault(); (filtersTrigger.current?.isConnected ? filtersTrigger.current : directorySearch.current)?.focus(); }}><DialogTitle>Workstream filters</DialogTitle><div className="ws-filter-dialog-fields">{filterChoices}</div><div className="ws-filter-dialog-actions"><Button variant="ghost" onClick={() => setDirectory(initialDirectory)}>Clear filters</Button><Button onClick={() => setFiltersOpen(false)}>Done</Button></div></DialogContent></Dialog></> : filterChoices}
     </div>
-    <div className="ws-directory-tools">{directory.search && <Button variant="ghost" onClick={() => { setFilter('search', ''); directorySearch.current?.focus(); }}>Clear search</Button>}{(directory.search || directory.leadId || directory.goalId || directory.attention !== 'all') && <Button variant="ghost" onClick={clearDirectory}>Clear filters</Button>}</div>
+    <div className="ws-directory-tools">{directory.search && <Button variant="ghost" onClick={() => { setFilter('search', ''); directorySearch.current?.focus(); }}>Clear search</Button>}{(directory.search || directory.leadId || directory.goalId || directory.attention !== 'all' || (props.compact && directory.sort !== 'name')) && <Button variant="ghost" onClick={clearDirectory}>Clear filters</Button>}</div>
     <p className="ws-muted" role="status">{visible.length} of {props.snapshot.workstreams.length} workstreams</p>
     <div className="ws-directory">{visible.map(summary => <article key={summary.stream.id} className="ws-stream-row"><div className="ws-stream-copy"><h3><button type="button" onClick={() => props.onSelect(summary.stream.id)} aria-label={`Review ${summary.stream.title}`}>{summary.stream.title}<ArrowRight aria-hidden="true" /></button></h3>{summary.stream.description && <p className="ws-stream-description">{summary.stream.description}</p>}<StreamMeta stream={summary.stream} snapshot={props.snapshot} /><Counts counts={summary.total} /></div><Metrics summary={summary} clockReady={now !== null} /></article>)}</div>
     {!visible.length && <div className="ws-empty"><h3>{props.snapshot.workstreams.length ? 'No matching workstreams' : 'No workstreams yet'}</h3><p>{props.snapshot.workstreams.length ? 'Try another search or clear the filters.' : props.canEdit ? 'Create a workstream to group related tasks and begin reviewing work.' : 'Workstreams will appear here when one is created.'}</p>{props.snapshot.workstreams.length > 0 && <Button variant="outline" onClick={clearDirectory}>Clear filters</Button>}</div>}

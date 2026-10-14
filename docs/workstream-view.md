@@ -4,7 +4,9 @@
 
 **Workstreams** is a Workspace destination alongside All work and My work. Its directory opens a workstream for review, rather than treating the directory row as the workstream editor. Editing the stream and creating a task remain explicit actions.
 
-An opened stream starts in **Attention**. **All tasks** is the alternative for browsing its work without attention filtering. The sidebar footer's **Default view** selector chooses All work or Workstreams for the next page load. It is saved per account in this browser, not across devices. All work remains the fallback. Changing the preference does not navigate away from an open draft.
+An opened stream starts in **Attention**. **All tasks** is the alternative for browsing its work without attention filtering. The sidebar footer's **Start page** selector chooses All work or Workstreams for the next page load. It keeps the existing landing preference, saved per account in this browser rather than across devices. All work remains the fallback. The separate **Layout** selector chooses Standard or Compact and applies immediately without navigation or discarding drafts. Standard is the default.
+
+Compact keeps Search and Activity window visible and groups the remaining directory controls in Filters. It reduces row spacing, makes descriptions and metadata secondary, and mutes zero activity counts. Inside a stream, a breadcrumb replaces the repeated heading and back link. Compact navigation groups management destinations under Manage and AI/Debug switches under Settings. These presentation changes do not alter filters, permissions, counts, or saved work.
 
 The workstream view reads the existing workspace snapshot. It does not add stream-level posts, a separate activity store, a background report, or new write permissions. Updates belong to individual tasks or subtasks. ADRs still belong to tasks and remain available through Updates and the ADR registry.
 

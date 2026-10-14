@@ -50,14 +50,14 @@ try {
   await check('Default All work, footer dropdown and Workstreams-first desktop navigation',async()=>{
     await heading(page,'All work');
     assert.equal(await page.locator('.work-sidebar nav button').first().innerText(),'Workstreams');
-    assert.equal(await page.locator('.sidebar-footer').getByRole('combobox',{name:'Default view'}).innerText(),'All work');
+    assert.equal(await page.locator('.sidebar-footer').getByRole('combobox',{name:'Start page'}).innerText(),'All work');
     await capture('desktop-default');
   });
   await check('Both default values persist account-scoped and apply only on reload',async()=>{
-    await choose(page,'Default view','Workstreams'); await heading(page,'All work');
+    await choose(page,'Start page','Workstreams'); await heading(page,'All work');
     assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),'streams');
     await page.reload(); await heading(page,'Workstreams');
-    await choose(page,'Default view','All work'); await heading(page,'Workstreams');
+    await choose(page,'Start page','All work'); await heading(page,'Workstreams');
     assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),'all');
     await page.reload(); await heading(page,'All work');
   });
@@ -66,12 +66,12 @@ try {
     await page.getByRole('button',{name:'New work',exact:true}).click();
     await page.getByRole('textbox',{name:'Title',exact:true}).fill('Synthetic unsaved cross-tab preference draft');
     for(const value of ['Workstreams','All work']) {
-      await choose(page,'Default view',value); await heading(page,'All work');
+      await choose(page,'Start page',value); await heading(page,'All work');
       assert.equal(await page.getByRole('textbox',{name:'Title',exact:true}).inputValue(),'Synthetic unsaved cross-tab preference draft');
       assert.equal(await page.getByRole('alertdialog').count(),0);
     }
-    await choose(other,'Default view','Workstreams');
-    await page.waitForFunction(()=>document.querySelector('.sidebar-footer [role="combobox"]')?.textContent==='Workstreams');
+    await choose(other,'Start page','Workstreams');
+    await page.getByRole('combobox',{name:'Start page',exact:true}).filter({hasText:'Workstreams'}).waitFor();
     await heading(page,'All work');
     assert.equal(await page.getByRole('textbox',{name:'Title',exact:true}).inputValue(),'Synthetic unsaved cross-tab preference draft');
     assert.equal(await page.getByRole('alertdialog').count(),0);
@@ -102,7 +102,7 @@ try {
       await page.getByRole('button',{name:'Open navigation',exact:true}).click();
       const dialog=page.getByRole('dialog');
       assert.equal(await dialog.locator('nav button').first().innerText(),'Workstreams');
-      await dialog.getByRole('combobox',{name:'Default view',exact:true}).click();
+      await dialog.getByRole('combobox',{name:'Start page',exact:true}).click();
       await page.getByRole('option',{name:label,exact:true}).click();
       assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),value);
       await capture(`mobile-default-${value}`);
@@ -115,20 +115,20 @@ try {
     await page.getByRole('button',{name:'Sign out',exact:true}).click(); await page.locator('#page-title').waitFor({state:'detached'});
     await page.close(); page=await login(context,'editor'); await heading(page,'All work');
     assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),'streams');
-    await choose(page,'Default view','Workstreams');
-    await choose(page,'Default view','All work');
+    await choose(page,'Start page','Workstreams');
+    await choose(page,'Start page','All work');
     assert.equal(await page.evaluate(()=>localStorage.getItem('goalie:work-default-view:demo-editor')),'all');
     assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),'streams');
   });
   await check('Invalid stored default falls back to All work',async()=>{
     await page.evaluate(()=>localStorage.setItem('goalie:work-default-view:demo-editor','invalid-synthetic'));
-    await page.reload(); await heading(page,'All work'); await page.waitForFunction(()=>document.querySelector('.sidebar-footer [role="combobox"]')?.textContent==='All work'); assert.equal(await page.getByRole('combobox',{name:'Default view',exact:true}).innerText(),'All work');
+    await page.reload(); await heading(page,'All work'); await page.getByRole('combobox',{name:'Start page',exact:true}).filter({hasText:'All work'}).waitFor(); assert.equal(await page.getByRole('combobox',{name:'Start page',exact:true}).innerText(),'All work');
   });
   await check('Unavailable localStorage safely falls back and preference remains usable',async()=>{
     const blocked=await browser.newContext({viewport:{width:1440,height:1000}});
     await blocked.addInitScript(()=>Object.defineProperty(window,'localStorage',{get(){throw new DOMException('Synthetic unavailable storage','SecurityError');}}));
-    page=await login(blocked); await heading(page,'All work'); await choose(page,'Default view','Workstreams'); await heading(page,'All work');
-    await page.reload(); await heading(page,'All work'); await capture('storage-unavailable'); await blocked.close(); page=null;
+    page=await login(blocked); await heading(page,'All work'); await page.getByRole('combobox',{name:'Layout',exact:true}).filter({hasText:'Standard'}).waitFor(); assert.equal(await page.getByRole('combobox',{name:'Layout',exact:true}).innerText(),'Standard'); await choose(page,'Start page','Workstreams'); await choose(page,'Layout','Compact'); await heading(page,'All work');
+    await page.reload(); await heading(page,'All work'); await page.getByRole('combobox',{name:'Layout',exact:true}).filter({hasText:'Standard'}).waitFor(); assert.equal(await page.getByRole('combobox',{name:'Layout',exact:true}).innerText(),'Standard'); await capture('storage-unavailable'); await blocked.close(); page=null;
   });
   await check('No uncaught browser errors',async()=>assert.deepEqual(errors,[]));
 } catch(error) { console.error(safe(error)); process.exitCode=1; if(page&&!page.isClosed()) { await page.screenshot({path:resolve(output,'failure.png'),fullPage:true}); await writeFile(resolve(output,'failure.txt'),await page.locator('body').innerText(),{mode:0o600}); } }

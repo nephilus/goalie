@@ -96,7 +96,9 @@ Choose unused loopback ports and pass the app origin configured in that instance
 
 ## Default-view and workstream presentation acceptance
 
-`tests/browser/view-preference-browser.mjs` uses the same isolated instance and explicit arguments as the workstream harness. It checks the sidebar default-view selector, reload persistence, account isolation, draft preservation across preference changes, unavailable storage, and desktop/mobile light and dark workstream cues. Results and screenshots stay in the ignored instance. This browser-local preference needs no database migration.
+`tests/browser/view-preference-browser.mjs` uses the same isolated instance and explicit arguments as the workstream harness. It checks the sidebar Start page selector, reload persistence, account isolation, draft preservation across preference changes, unavailable storage, and desktop/mobile light and dark workstream cues. Results and screenshots stay in the ignored instance. This browser-local preference needs no database migration.
+
+`tests/browser/compact-view-browser.mjs` checks the separate Layout selector, Standard fallback, Compact navigation and filters, preserved drafts and view state, breadcrumbs, and responsive theme cues. Use the same fresh synthetic instance and explicit arguments. Layout preferences do not change work data or require a migration.
 
 ## Self-notification and ADR timeline acceptance
 

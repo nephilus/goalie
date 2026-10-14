@@ -94,6 +94,10 @@ node tests/browser/workstream-browser.mjs \
 
 Choose unused loopback ports and pass the app origin configured in that instance. Results and screenshots stay in a timestamped `browser-*` directory inside it. Keep instance files private and ignored. Stop your owned app, Dex, and database after testing. This optional harness is separate from the helper tests and database-backed suite. A desktop Chrome run with a narrow viewport does not qualify physical devices or other browsers.
 
+## Default-view and workstream presentation acceptance
+
+`tests/browser/view-preference-browser.mjs` uses the same isolated instance and explicit arguments as the workstream harness. It checks the sidebar default-view selector, reload persistence, account isolation, draft preservation across preference changes, unavailable storage, and desktop/mobile light and dark workstream cues. Results and screenshots stay in the ignored instance. This browser-local preference needs no database migration.
+
 ## Self-notification and ADR timeline acceptance
 
 `tests/browser/notification-timeline-browser.mjs` uses the same isolated workstream instance and explicit arguments as the workstream harness. It checks selected self-mentions, the separate Request approval step for a self-nominated approver, and read-only ADR events in task and workstream timelines. Use a fresh synthetic instance and apply all migrations, including `0014`, before running it. Plain `@name` text is not an identity selection. Do not run this writing harness against a live workspace.

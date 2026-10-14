@@ -26,7 +26,7 @@ The server rechecks the current database role inside the transaction boundary. U
 
 ## Principles and non-goals
 
-Goalie keeps incomplete information visible, avoids invented dependencies or ownership, and makes Save/Create the explicit persistence step. Stars are private watch preferences, not priority labels. Workstream Attention names specific reasons to review work, not an overall health or urgency score. Opening a stream does not change the login landing view or save an account-level default-view preference. It is not a hosted public service, autonomous coordinator, portfolio suite, issue-tracker replacement, or health/urgency classifier. Legacy tables and migrations remain for compatibility but are not part of the current UI model.
+Goalie keeps incomplete information visible, avoids invented dependencies or ownership, and makes Save/Create the explicit persistence step. Stars are private watch preferences, not priority labels. Workstream Attention names specific reasons to review work, not an overall health or urgency score. Opening a stream does not change the default view. The sidebar footer separately saves an All work or Workstreams landing preference per account in this browser. It is not a hosted public service, autonomous coordinator, portfolio suite, issue-tracker replacement, or health/urgency classifier. Legacy tables and migrations remain for compatibility but are not part of the current UI model.
 
 ## Technical contract
 

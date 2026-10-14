@@ -115,6 +115,9 @@ button:disabled { cursor: not-allowed; }
 .mobile-nav-dialog .sidebar-mobile-heading strong { display: none; }
 
 .sidebar-footer { border-top: 1px solid var(--border); display: grid; gap: 4px; margin-top: auto; padding: 12px 0 0; }
+.sidebar-default-view { display: grid; gap: 8px; padding: 4px 9px 12px; min-width: 0; }
+.sidebar-default-view label { color: var(--muted-foreground); font-size: .875rem; }
+.sidebar-default-view [role='combobox'] { min-height: 44px; width: 100%; }
 .sidebar-switch { border: 1px solid transparent; color: var(--muted-foreground); display: grid; font-size: .875rem; gap: 0; justify-content: stretch; line-height: 1.35; min-height: 44px; padding: 4px 54px 4px 9px; position: relative; text-align: left; white-space: normal; width: 100%; }
 .sidebar-switch::before { background: var(--muted); border: 1px solid var(--muted-foreground); border-radius: 12px; content: ''; height: 20px; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 34px; }
 .sidebar-switch::after { background: var(--muted-foreground); border-radius: 50%; content: ''; height: 12px; position: absolute; right: 27px; top: 50%; transform: translateY(-50%); width: 12px; }

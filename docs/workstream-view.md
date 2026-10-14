@@ -4,7 +4,7 @@
 
 **Workstreams** is a Workspace destination alongside All work and My work. Its directory opens a workstream for review, rather than treating the directory row as the workstream editor. Editing the stream and creating a task remain explicit actions.
 
-An opened stream starts in **Attention**. **All tasks** is the alternative for browsing its work without attention filtering. The login landing view remains All work. This change does not introduce an account-level default-view preference.
+An opened stream starts in **Attention**. **All tasks** is the alternative for browsing its work without attention filtering. The sidebar footer's **Default view** selector chooses All work or Workstreams for the next page load. It is saved per account in this browser, not across devices. All work remains the fallback. Changing the preference does not navigate away from an open draft.
 
 The workstream view reads the existing workspace snapshot. It does not add stream-level posts, a separate activity store, a background report, or new write permissions. Updates belong to individual tasks or subtasks. ADRs still belong to tasks and remain available through Updates and the ADR registry.
 

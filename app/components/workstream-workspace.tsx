@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Plus } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, CircleAlert, Clock3, Plus } from 'lucide-react';
 import type { Item, Snapshot, Workstream } from '../shared/work';
 import { timelineKey, type TimelineEntry as WorkTimelineEntry } from '../lib/work-timeline';
 import { AdrTimelineActivity } from './adr-timeline-activity';
@@ -43,8 +43,13 @@ function Choice({ label, value, onChange, options }: { label: string; value: str
 function Counts({ counts }: { counts: ItemCounts }) {
   return <span className="ws-counts">{counts.tasks} {counts.tasks === 1 ? 'task' : 'tasks'} <span aria-hidden="true">·</span> {counts.subtasks} {counts.subtasks === 1 ? 'subtask' : 'subtasks'}</span>;
 }
+const metricIcons = { updated: Activity, quiet: Clock3, blocked: CircleAlert };
+function MetricIcon({ metric }: { metric: keyof typeof metricIcons }) {
+  const Icon = metricIcons[metric];
+  return <Icon className="ws-metric-icon" aria-hidden="true" />;
+}
 function Metrics({ summary, clockReady }: { summary: WorkstreamSummary; clockReady: boolean }) {
-  return <dl className="ws-metrics">{(['updated', 'quiet', 'blocked'] as const).map(metric => <div key={metric}><dt>{metric === 'updated' ? 'Updated' : metric === 'quiet' ? 'Quiet' : 'Blocked'}</dt><dd>{clockReady || metric === 'blocked' ? <Counts counts={summary[metric]} /> : <span className="ws-muted">Calculating…</span>}</dd></div>)}</dl>;
+  return <dl className="ws-metrics">{(['updated', 'quiet', 'blocked'] as const).map(metric => <div key={metric}><dt className={`ws-metric-${metric}`}><MetricIcon metric={metric} />{metric === 'updated' ? 'Updated' : metric === 'quiet' ? 'Quiet' : 'Blocked'}</dt><dd>{clockReady || metric === 'blocked' ? <Counts counts={summary[metric]} /> : <span className="ws-muted">Calculating…</span>}</dd></div>)}</dl>;
 }
 function StreamMeta({ stream, snapshot }: { stream: Workstream; snapshot: Snapshot }) {
   const goals = stream.goalIds.map(id => snapshot.goals.find(goal => goal.id === id)?.title ?? 'Unknown goal');
@@ -84,21 +89,20 @@ export function WorkstreamWorkspace(props: WorkstreamWorkspaceProps) {
       <header className="ws-heading"><div><h2>{selected.stream.title}</h2><StreamMeta stream={selected.stream} snapshot={props.snapshot} /></div><div className="ws-actions">{props.canEdit && <><Button variant="outline" onClick={event => props.onEditStream(selected.stream, event.currentTarget)}>Edit workstream</Button><Button onClick={event => props.onAddTask(selected.stream, event.currentTarget)}><Plus />Add task</Button></>}</div></header>
       {selected.stream.description && <p className="ws-description">{selected.stream.description}</p>}
       <div className="ws-overview"><div><Counts counts={selected.total} /><Metrics summary={selected} clockReady={now !== null} /></div>{windowControl}</div>
-      <details className="ws-count-help"><summary>About these counts</summary><p className="ws-definition">Updated means a timeline entry, including ADR activity, in the last {days} days. Quiet means in-progress work with no timeline entry for more than {days} days, or since creation. To do and done are excluded from Quiet. Blocked counts current blockers on unfinished work.</p></details>
       <Review key={selected.stream.id} {...props} summary={selected} view={view} days={days} clockReady={now !== null} />
     </section>;
   }
   const effectiveDirectory = !decisionAvailable && directory.attention === 'decision' ? { ...directory, attention: 'all' as const } : directory;
   const visible = filterWorkstreamDirectory(view, props.snapshot, effectiveDirectory);
   return <section className="ws-workspace" aria-label="Workstream directory">
-    <header className="ws-heading"><p className="ws-muted">Review recent updates, quiet work, and current blockers.</p>{windowControl}</header>
+    <header className="ws-heading ws-directory-heading">{windowControl}</header>
     <div className="ws-directory-filters"><label className="ws-choice ws-search"><span>Search workstreams</span><Input ref={directorySearch} aria-label="Search workstreams" placeholder="Search title or description" value={directory.search} maxLength={200} onChange={event => setFilter('search', event.target.value)} /></label>
       <Choice label="Workstream lead" value={directory.leadId || 'all'} onChange={value => setFilter('leadId', value === 'all' ? '' : value)} options={[{ value: 'all', label: 'All leads' }, ...props.snapshot.people.map(person => ({ value: person.id, label: person.name }))]} />
       <Choice label="Linked goal" value={directory.goalId || 'all'} onChange={value => setFilter('goalId', value === 'all' ? '' : value)} options={[{ value: 'all', label: 'All goals' }, ...props.snapshot.goals.map(goal => ({ value: goal.id, label: goal.title }))]} />
       <Choice label="Workstream attention" value={effectiveDirectory.attention} onChange={value => setFilter('attention', value as DirectoryFilters['attention'])} options={[{ value: 'all', label: 'Any attention' }, { value: 'attention', label: 'Needs attention' }, { value: 'blocked', label: 'Blocked' }, { value: 'quiet', label: 'Quiet' }, ...(decisionAvailable ? [{ value: 'decision', label: 'Jev decision needed' }] : [])]} />
       <Choice label="Sort workstreams" value={directory.sort} onChange={value => setFilter('sort', value as DirectoryFilters['sort'])} options={[{ value: 'name', label: 'Name' }, { value: 'latest', label: 'Latest timeline' }, { value: 'quiet', label: 'Quiet count' }]} />
     </div>
-    <div className="ws-directory-tools">{directory.search && <Button variant="ghost" onClick={() => { setFilter('search', ''); directorySearch.current?.focus(); }}>Clear search</Button>}{(directory.search || directory.leadId || directory.goalId || directory.attention !== 'all') && <Button variant="ghost" onClick={clearDirectory}>Clear filters</Button>}<details className="ws-count-help"><summary>About these counts</summary><p className="ws-definition">Updated uses timeline entries, including ADR activity, in the last {days} days, not field edits. Quiet means in-progress work with no timeline entry for more than {days} days, or since creation. To do and done are excluded. Blocked counts current blockers on unfinished work. Counts separate tasks from subtasks.</p></details></div>
+    <div className="ws-directory-tools">{directory.search && <Button variant="ghost" onClick={() => { setFilter('search', ''); directorySearch.current?.focus(); }}>Clear search</Button>}{(directory.search || directory.leadId || directory.goalId || directory.attention !== 'all') && <Button variant="ghost" onClick={clearDirectory}>Clear filters</Button>}</div>
     <p className="ws-muted" role="status">{visible.length} of {props.snapshot.workstreams.length} workstreams</p>
     <div className="ws-directory">{visible.map(summary => <article key={summary.stream.id} className="ws-stream-row"><div className="ws-stream-copy"><h3><button type="button" onClick={() => props.onSelect(summary.stream.id)} aria-label={`Review ${summary.stream.title}`}>{summary.stream.title}<ArrowRight aria-hidden="true" /></button></h3>{summary.stream.description && <p className="ws-stream-description">{summary.stream.description}</p>}<StreamMeta stream={summary.stream} snapshot={props.snapshot} /><Counts counts={summary.total} /></div><Metrics summary={summary} clockReady={now !== null} /></article>)}</div>
     {!visible.length && <div className="ws-empty"><h3>{props.snapshot.workstreams.length ? 'No matching workstreams' : 'No workstreams yet'}</h3><p>{props.snapshot.workstreams.length ? 'Try another search or clear the filters.' : props.canEdit ? 'Create a workstream to group related tasks and begin reviewing work.' : 'Workstreams will appear here when one is created.'}</p>{props.snapshot.workstreams.length > 0 && <Button variant="outline" onClick={clearDirectory}>Clear filters</Button>}</div>}
@@ -173,7 +177,7 @@ function TaskRow(props: ReviewProps & { item: Item; context: boolean; retained: 
     {props.mode === 'attention' && parent && <p className="ws-breadcrumb">Task: {parent.title} <span aria-hidden="true">/</span> Subtask</p>}
     <div className="ws-task-heading"><h3>{props.canEdit ? <button type="button" className="ws-task-title" onClick={event => props.onEditItem(item, event.currentTarget)}>{item.title}</button> : item.title}</h3><span className="ws-status">{statuses[item.status]}</span></div>
     <p className="ws-task-meta">{item.assigneeIds.length ? item.assigneeIds.map(id => personName(snapshot, id)).join(', ') : 'Unassigned'}{item.dueDate && <span>Due {item.dueDate}</span>}{props.context && <span>Parent context, outside current filters</span>}</p>
-    {reasons.length > 0 && <div className="ws-reasons">{reasons.map(reason => reason === 'decision' ? <Button key={reason} variant="outline" size="sm" onClick={event => props.onUpdates(item, true, event.currentTarget)}>Jev: decision needed</Button> : <span key={reason} className={`ws-reason ws-reason-${reason}`}>{reason === 'blocked' ? 'Blocked' : `Quiet for over ${props.days} days`}</span>)}</div>}
+    {reasons.length > 0 && <div className="ws-reasons">{reasons.map(reason => reason === 'decision' ? <Button key={reason} variant="outline" size="sm" onClick={event => props.onUpdates(item, true, event.currentTarget)}>Jev: decision needed</Button> : <span key={reason} className={`ws-reason ws-reason-${reason}`}><MetricIcon metric={reason} />{reason === 'blocked' ? 'Blocked' : `Quiet for over ${props.days} days`}</span>)}</div>}
     {props.retained && <p className="ws-retained-note">No longer flagged. Kept here until you refresh the attention list or change this view.</p>}
     {item.blocker.trim() && item.status !== 'done' && <p className="ws-blocker"><strong>Blocker:</strong> {item.blocker}</p>}
     {props.aiAvailable && assessment.enabled && assessment.scopeItemIds.has(item.id) && item.status !== 'done' && <>{error ? <p className="ws-ai-error">Jev check failed: {error.message} {props.canEdit && <Button variant="ghost" size="sm" onClick={() => assessment.retryItem(item.id)}>Retry Jev check</Button>}</p> : assessment.pendingIds.has(item.id) ? <p className="ws-muted">Jev check pending. Decision signal not yet available.</p> : (assessment.refreshRequiredIds.has(item.id) || assessment.entriesByItemId.get(item.id)?.state !== 'current') && <p className="ws-muted">Jev decision check needs refreshing.</p>}</>}

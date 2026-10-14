@@ -568,3 +568,30 @@ body, .work-header, .work-sidebar, .surface, .work-panel, .filterbar, .assist-pa
 @media (max-width: 600px) {
   .work-display-controls { justify-content: space-between; width: 100%; }
 }
+
+/* Compact changes presentation only: keep the same task nodes and disclosure state. */
+.work-layout-compact .work-list-surface .work-item { border-radius: 4px; }
+.work-layout-compact .work-list-surface .work-item + .work-item { margin-top: 0; }
+.work-layout-compact .work-list-surface .work-item-heading { align-items: center; flex-direction: row; gap: 4px; }
+.work-layout-compact .work-list-surface .work-item-summary { min-width: 0; }
+.work-layout-compact .work-list-surface .work-item-summary > h3 { min-width: 0; }
+.work-layout-compact .work-list-surface .item-trigger { gap: 4px 10px; min-height: 44px; padding: 8px 10px 4px; }
+.work-layout-compact .work-list-surface .work-row-copy { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.work-layout-compact .work-list-surface .work-row-copy strong { flex-basis: 100%; font-size: 1rem; line-height: 1.4; }
+.work-layout-compact .work-list-surface .work-row-context-note { font-size: .8125rem; overflow-wrap: anywhere; }
+.work-layout-compact .work-list-surface .row-assignees { font-size: .875rem; }
+.work-layout-compact .work-list-surface .work-item-summary > .work-row-context { gap: 2px 6px; padding: 0 10px 6px; }
+.work-layout-compact .work-list-surface .work-item-actions { flex-direction: column; gap: 0; padding: 4px; width: auto; }
+.work-layout-compact .work-list-surface .work-item-actions > button { flex: 0 0 auto; min-height: 44px; min-width: 44px; padding: 0 10px; width: 44px; }
+.work-layout-compact .work-list-surface .item-content { padding: 0 10px 12px; }
+.work-layout-compact .work-list-surface .subtask-list { margin-top: 8px; padding-left: 8px; }
+
+/* Use available list width, not viewport width, so an open editor stays readable. */
+@container work-surface (min-width: 761px) {
+  .work-layout-compact .work-list-surface .work-item-summary { align-items: center; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+  .work-layout-compact .work-list-surface .item-trigger { grid-template-columns: minmax(0, 1fr) 16px; padding: 8px 10px; }
+  .work-layout-compact .work-list-surface .item-trigger > svg { grid-column: 2; grid-row: 1; }
+  .work-layout-compact .work-list-surface .item-trigger .work-row-meta { grid-column: 1; justify-content: flex-start; gap: 6px; }
+  .work-layout-compact .work-list-surface .work-item-summary > .work-row-context { padding: 6px; }
+  .work-layout-compact .work-list-surface .work-item-actions { flex-direction: row; }
+}

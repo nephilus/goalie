@@ -33,10 +33,12 @@ Pass configuration through a secret manager or a private environment file. Do no
 | `OPENJEV_BASE_URL` | Conditional | OpenJev HTTP(S) endpoint. Empty unless assistance is enabled. |
 | `OPENJEV_TRUSTED_ORIGIN` | Conditional | Exact HTTPS origin trusted for OpenJev egress; required for remote HTTPS. |
 | `OPENJEV_API_KEY_FILE` | Conditional | Mounted mode-0600 API-key file. |
-| `OPENJEV_MODEL` | Optional | Model alias; default `openjev-latest`. |
+| `OPENJEV_MODEL` | Optional | Model alias; default `jev-decision-api`. |
 | `OPENJEV_TIMEOUT_MS` | Optional | Provider timeout; default `30000`. |
 
 An existing installation upgraded to a version with remote OpenJev assistance remains disabled unless `OPENJEV_ENABLED=true`, a base URL, a matching trusted origin, and a private key file are deliberately configured. The trusted origin must be a valid HTTPS origin with no userinfo, query, fragment, or non-root path. Legacy evaluation adapters retain their own `AI_*` configuration; those variables are not needed for current draft assistance.
+
+The default inference alias is `jev-decision-api`. This is a name change only: keep the `OPENJEV_*` variables, provider URL, trusted origin, key file, and `POST /v1/systemone` request/response contract unchanged. A response may identify the canonical model as `Cloudflare/clef-flash`. Before switching an existing installation, confirm authenticated `GET /v1/models` advertises both `jev-decision-api` and `openjev-latest`. Keep the legacy alias available for rollback, set `OPENJEV_MODEL=jev-decision-api` in the active runtime configuration, and restart only the app. An explicit environment override does not require replacing a preserved build. Verify health and a real signed-in decisions workflow; provider-only probes are not app acceptance. On failure, restore `OPENJEV_MODEL=openjev-latest` and restart the app.
 
 Mount secrets read-only, for example `/run/secrets/postgres-ca.pem`, `/run/secrets/oidc-ca.pem`, and `/run/secrets/openjev-api-key`, and set the corresponding file variables. Never print their contents.
 

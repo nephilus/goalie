@@ -34,7 +34,7 @@ function draft(overrides: Partial<AssistDraft> = {}): AssistDraft {
 
 function choiceRequest(): OpenJevRequest {
   return {
-    model: 'openjev-latest',
+    model: 'jev-decision-api',
     state: { draft: { title: 'Review next steps' } },
     questions: {
       workstreamId: {
@@ -106,9 +106,9 @@ test('unknown model choices abstain and valid choices preserve unknown alternati
 
 test('assistance rejects malformed IDs, types, probabilities, and answer counts before mapping', () => {
   const request = choiceRequest();
-  const valid = { model: 'openjev-0.1', answers: { workstreamId: { type: 'choice', choice: 'stream', probabilities: { stream: 0.9, unknown: 0.1 } } } };
+  const valid = { model: 'Cloudflare/clef-flash', answers: { workstreamId: { type: 'choice', choice: 'stream', probabilities: { stream: 0.9, unknown: 0.1 } } } };
   const validResponse = validateSystemOneResponse(request, valid);
-  assert.equal(validResponse.model, 'openjev-0.1');
+  assert.equal(validResponse.model, 'Cloudflare/clef-flash');
   const invalidResponses = [
     { ...valid, answers: { wrong: valid.answers.workstreamId } },
     { ...valid, answers: { workstreamId: { ...valid.answers.workstreamId, type: 'noul' } } },
@@ -162,7 +162,7 @@ test('binary goal candidates map suggest to goalIds without aliases', () => {
     ],
   }];
   const request: OpenJevRequest = {
-    model: 'openjev-latest',
+    model: 'jev-decision-api',
     state: { draft: { title: 'Pilot routing' } },
     questions: { 'goalIds:goal-1': { type: 'choice', instructions: 'Choose', criteria: { suggest: 'Goal', unknown: 'Unknown' } } },
   };
@@ -197,6 +197,8 @@ test('assistance status enforces trusted HTTPS origins and preserves loopback fi
   try {
     configure('https://model.example.test:9443', 'https://model.example.test:9443/');
     assert.deepEqual(assistStatus(), { enabled: true, model: 'openjev-fixture' });
+    delete process.env.OPENJEV_MODEL;
+    assert.deepEqual(assistStatus(), { enabled: true, model: 'jev-decision-api' });
 
     configure('https://model.example.test', 'https://model.example.test:443');
     assert.deepEqual(assistStatus(), { enabled: true, model: 'openjev-fixture' });

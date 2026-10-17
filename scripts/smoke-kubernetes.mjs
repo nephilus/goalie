@@ -557,7 +557,7 @@ async function securityAndAiChecks(fixture, baseValues, chartPath, work) {
   const enabledStatus = await enabledStatusResponse.json();
   assert.equal(enabledStatusResponse.status, 200);
   assert.equal(enabledStatus.assist?.enabled, true, 'Application service did not recognize the enabled provider configuration');
-  assert.equal(enabledStatus.assist?.model, 'openjev-latest');
+  assert.equal(enabledStatus.assist?.model, 'jev-decision-api');
   const requests = await providerInferenceRequestCount(fixture);
   assert.equal(requests, disabledRequests, 'AI fixture received an inference request during configuration-only acceptance');
   await workStillExists(work);

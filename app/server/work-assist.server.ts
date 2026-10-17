@@ -4,7 +4,7 @@ import { assistRequestSchema, assistResultSchema, workstreamAssistRequestSchema,
 import { readWork, WorkError } from './work.server';
 import type { Person, Snapshot } from '../shared/work';
 
-const DEFAULT_MODEL = 'openjev-latest';
+const DEFAULT_MODEL = 'jev-decision-api';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MIN_TIMEOUT_MS = 10;
 const MAX_TIMEOUT_MS = 120_000;

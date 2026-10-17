@@ -158,7 +158,7 @@ await atomicPrivate(envPath, [
   `DATABASE_URL=postgresql://goalie:${encodeURIComponent(databasePassword)}@127.0.0.1:${databasePort}/goalie`,
   `OIDC_ISSUER=${dexIssuer}`, 'OIDC_CLIENT_ID=goalie', `OIDC_CLIENT_SECRET=${clientSecret}`,
   `AUTH_BOOTSTRAP_EMAIL=${adminEmail}`,
-  'OPENJEV_ENABLED=false', 'OPENJEV_BASE_URL=', 'OPENJEV_TRUSTED_ORIGIN=', 'OPENJEV_API_KEY_FILE=', 'OPENJEV_MODEL=openjev-latest', 'OPENJEV_TIMEOUT_MS=30000', '',
+  'OPENJEV_ENABLED=false', 'OPENJEV_BASE_URL=', 'OPENJEV_TRUSTED_ORIGIN=', 'OPENJEV_API_KEY_FILE=', 'OPENJEV_MODEL=jev-decision-api', 'OPENJEV_TIMEOUT_MS=30000', '',
 ].join('\n'));
 
 const relativeState = stateDir === resolve(root, '.local') ? '.local' : stateDir;

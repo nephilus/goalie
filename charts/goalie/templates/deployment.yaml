@@ -148,7 +148,7 @@ spec:
             - name: OPENJEV_TRUSTED_ORIGIN
               value: {{ get $openjev "trustedOrigin" | quote }}
             - name: OPENJEV_MODEL
-              value: {{ default "openjev-latest" (get $openjev "model") | quote }}
+              value: {{ default "jev-decision-api" (get $openjev "model") | quote }}
             - name: OPENJEV_TIMEOUT_MS
               value: {{ default 30000 (get $openjev "timeoutMs") | quote }}
             - name: OPENJEV_API_KEY_FILE

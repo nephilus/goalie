@@ -106,7 +106,7 @@ openjev:
   enabled: false
   baseUrl: ""
   trustedOrigin: ""
-  model: openjev-latest
+  model: jev-decision-api
   timeoutMs: 30000
   apiKeySecretRef: {}
 
